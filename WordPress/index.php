@@ -1,25 +1,13 @@
 <?php
 // =====================
-// ⚡ BASIC SPEED
+// ⚡ SPEED MODE
 // =====================
 define('WP_USE_THEMES', false);
 
 // =====================
-// 🔥 BASE URL (WAJIB)
+// 🔥 BASE URL
 // =====================
 define('BASE_URL', '/api');
-
-// =====================
-// ⚡ CACHE SYSTEM
-// =====================
-$cache_file = __DIR__ . '/cache_' . md5($_SERVER['REQUEST_URI']) . '.html';
-
-if (file_exists($cache_file) && time() - filemtime($cache_file) < 300) {
-    readfile($cache_file);
-    exit;
-}
-
-ob_start();
 
 // =====================
 // LOAD WORDPRESS
@@ -29,6 +17,9 @@ while (!file_exists($path . '/wp-load.php')) {
     $path = dirname($path);
 }
 require_once $path . '/wp-load.php';
+
+// 🔥 MATIKAN REDIRECT WP
+remove_all_actions('template_redirect');
 
 // =====================
 // GET PARAM
@@ -63,7 +54,7 @@ if ($id && $type) {
     if ($type === 'movie' && $post->post_type !== 'post') exit('Invalid');
 
     $title = str_replace(['Nonton ', ' Sub Indo', ' hd', ' jf'], '', get_the_title($id));
-    $thumb = get_the_post_thumbnail_url($id, 'medium');
+    $thumb = get_the_post_thumbnail_url($id, 'thumbnail');
 
     $meta = get_post_meta($id);
 
@@ -86,7 +77,7 @@ if ($id && $type) {
 
 <h1><?= $title ?></h1>
 
-<img src="<?= $thumb ?>" style="max-width:250px;">
+<img src="<?= $thumb ?>">
 
 <div>Views: <?= number_format($views) ?></div>
 
@@ -105,21 +96,19 @@ src="https://www.youtube.com/embed/<?= $meta['IDMUVICORE_Trailer'][0] ?>"></ifra
 </body>
 </html>
 <?php
-    $html = ob_get_contents();
-    file_put_contents($cache_file, preg_replace('/\s+/', ' ', $html));
-    ob_end_flush();
-    exit;
+exit;
 }
 
 // =====================
 // CATEGORY LIST
 // =====================
 $categories = get_categories([
-    'hide_empty' => true
+    'hide_empty' => true,
+    'number' => 20
 ]);
 
 // =====================
-// ⚡ OPTIMIZED QUERY
+// QUERY (STABIL)
 // =====================
 $args = [
     'post_type' => ['post','tv'],
@@ -128,13 +117,7 @@ $args = [
     'orderby' => 'date',
     'order' => 'DESC',
     'paged' => $paged,
-
-    'no_found_rows' => false,
-    'update_post_meta_cache' => false,
-    'update_post_term_cache' => false,
-    'cache_results' => true,
-    'ignore_sticky_posts' => true,
-    'fields' => 'ids'
+    'ignore_sticky_posts' => true
 ];
 
 if ($category_id) {
@@ -150,11 +133,12 @@ $query = new WP_Query($args);
 <title><?= $category_id ? "Kategori $category_id" : "Film Terbaru" ?></title>
 <meta name="description" content="Nonton film terbaru sub indo lengkap.">
 <link rel="canonical" href="<?= build_url($category_id, $paged) ?>">
+
 <style>
 body{background:#111;color:#fff;font-family:Arial}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:15px;padding:20px}
 .item{background:#222;padding:10px;border-radius:8px;text-align:center}
-img{width:100%;border-radius:5px}
+img{width:100%}
 a{color:#fff;text-decoration:none}
 </style>
 </head>
@@ -164,8 +148,6 @@ a{color:#fff;text-decoration:none}
 
 <!-- CATEGORY -->
 <div style="padding:20px;">
-<b>Kategori:</b>
-
 <a href="<?= BASE_URL ?>/">Semua</a>
 
 <?php foreach ($categories as $cat): ?>
@@ -178,58 +160,28 @@ style="<?= ($category_id == $cat->term_id ? 'color:yellow;' : '') ?>">
 
 <!-- GRID -->
 <div class="grid">
-<?php foreach ($query->posts as $id): ?>
-<?php $ptype = get_post_type($id) === 'tv' ? 'tv' : 'movie'; ?>
+<?php while ($query->have_posts()): $query->the_post(); ?>
+<?php $ptype = get_post_type() === 'tv' ? 'tv' : 'movie'; ?>
 <div class="item">
-<a href="<?= BASE_URL ?>/<?= $ptype ?>/<?= $id ?>">
-<img src="<?= get_the_post_thumbnail_url($id, 'medium'); ?>" loading="lazy">
-<div><?= get_the_title($id); ?></div>
+<a href="<?= BASE_URL ?>/<?= $ptype ?>/<?= get_the_ID() ?>">
+<img src="<?= get_the_post_thumbnail_url(get_the_ID(), 'thumbnail'); ?>" loading="lazy">
+<div><?= get_the_title(); ?></div>
 </a>
 </div>
-<?php endforeach; ?>
+<?php endwhile; wp_reset_postdata(); ?>
 </div>
 
 <!-- PAGINATION -->
-<?php
-$total_pages = $query->max_num_pages;
-$range = 2;
-
-if ($total_pages > 1):
-?>
+<?php if ($query->max_num_pages > 1): ?>
 <div style="padding:20px;text-align:center;">
-
 <?php if ($paged > 1): ?>
-<a href="<?= build_url($category_id, $paged - 1) ?>">⬅ Prev</a>
+<a href="<?= build_url($category_id,$paged-1) ?>">⬅ Prev</a>
 <?php endif; ?>
-
-<?php
-$start = max(1, $paged - $range);
-$end = min($total_pages, $paged + $range);
-
-if ($start > 1) echo '<a href="'.build_url($category_id,1).'">1</a> ... ';
-
-for ($i = $start; $i <= $end; $i++):
-?>
-<a href="<?= build_url($category_id,$i) ?>"
-style="margin:5px;padding:8px;background:<?= ($i==$paged?'#ff9800':'#222') ?>">
-<?= $i ?>
-</a>
-<?php endfor;
-
-if ($end < $total_pages) echo ' ... <a href="'.build_url($category_id,$total_pages).'">'.$total_pages.'</a>';
-?>
-
-<?php if ($paged < $total_pages): ?>
-<a href="<?= build_url($category_id, $paged + 1) ?>">Next ➡</a>
+<?php if ($paged < $query->max_num_pages): ?>
+<a href="<?= build_url($category_id,$paged+1) ?>">Next ➡</a>
 <?php endif; ?>
-
 </div>
 <?php endif; ?>
 
 </body>
 </html>
-
-<?php
-$html = ob_get_contents();
-file_put_contents($cache_file, preg_replace('/\s+/', ' ', $html));
-ob_end_flush();
