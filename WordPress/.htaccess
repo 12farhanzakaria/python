@@ -1,0 +1,12 @@
+RewriteEngine On
+
+# DETAIL
+RewriteRule ^movie/([^/]+)/?$ index.php?slug=$1&type=movie [L]
+RewriteRule ^tv/([^/]+)/?$ index.php?slug=$1&type=tv [L]
+
+# CATEGORY
+RewriteRule ^category/([^/]+)/page/([0-9]+)/?$ index.php?cat=$1&page=$2 [L]
+RewriteRule ^category/([^/]+)/?$ index.php?cat=$1 [L]
+
+# PAGE
+RewriteRule ^page/([0-9]+)/?$ index.php?page=$1 [L]
