@@ -5,7 +5,11 @@ while (!file_exists($path . '/wp-load.php')) {
     $path = dirname($path);
 }
 require_once $path . '/wp-load.php';
+$cat_slug = $_GET['cat'] ?? '';
 
+$categories = get_categories([
+    'hide_empty' => true
+]);
 $id = isset($_GET['id']) ? (int) $_GET['id'] : 0;
 
 // =====================
@@ -148,14 +152,21 @@ if ($id) {
 // 🔥 MODE LIST
 // =====================
 
-$query = new WP_Query([
+$args = [
     'post_type' => ['post','tv'],
     'posts_per_page' => 20,
     'post_status' => 'publish',
     'orderby' => 'date',
     'order' => 'DESC',
     'no_found_rows' => true
-]);
+];
+
+// filter kategori
+if (!empty($cat_slug)) {
+    $args['category_name'] = $cat_slug;
+}
+
+$query = new WP_Query($args);
 ?>
 
 <!DOCTYPE html>
@@ -173,7 +184,18 @@ $query = new WP_Query([
 <body>
 
 <h2 style="padding:20px;">🔥 Film Terbaru</h2>
+<div style="padding:20px;">
+    <b>Kategori:</b>
 
+    <a href="index.php" style="margin-right:10px;">Semua</a>
+
+    <?php foreach ($categories as $cat): ?>
+        <a href="?cat=<?= $cat->slug ?>"
+           style="margin-right:10px; <?= ($cat_slug == $cat->slug ? 'color:yellow;' : '') ?>">
+           <?= $cat->name ?>
+        </a>
+    <?php endforeach; ?>
+</div>
 <div class="grid">
 <?php while ($query->have_posts()): $query->the_post(); ?>
     <div class="item">
