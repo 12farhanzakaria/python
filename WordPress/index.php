@@ -1,4 +1,5 @@
 <?php
+echo "MASUK API"; exit;
 // =====================
 // 🔥 FORCE NO CACHE (PENTING BANGET)
 // =====================
