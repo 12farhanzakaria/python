@@ -1,9 +1,24 @@
 RewriteEngine On
+RewriteBase /api/
 
-RewriteRule ^movie/([0-9]+)/?$ api/index.php?type=movie&id=$1 [L]
-RewriteRule ^tv/([0-9]+)/?$ api/index.php?type=tv&id=$1 [L]
+# =====================
+# DETAIL
+# =====================
+RewriteRule ^movie/([0-9]+)/?$ index.php?type=movie&id=$1 [L,QSA]
+RewriteRule ^tv/([0-9]+)/?$ index.php?type=tv&id=$1 [L,QSA]
 
-RewriteRule ^category/([0-9]+)/page/([0-9]+)/?$ api/index.php?category_id=$1&page=$2 [L]
-RewriteRule ^category/([0-9]+)/?$ api/index.php?category_id=$1 [L]
+# =====================
+# CATEGORY
+# =====================
+RewriteRule ^category/([0-9]+)/page/([0-9]+)/?$ index.php?category_id=$1&page=$2 [L,QSA]
+RewriteRule ^category/([0-9]+)/?$ index.php?category_id=$1 [L,QSA]
 
-RewriteRule ^page/([0-9]+)/?$ api/index.php?page=$1 [L]
+# =====================
+# PAGE
+# =====================
+RewriteRule ^page/([0-9]+)/?$ index.php?page=$1 [L,QSA]
+
+# =====================
+# ROOT API
+# =====================
+RewriteRule ^$ index.php [L,QSA]
