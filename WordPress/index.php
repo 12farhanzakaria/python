@@ -152,6 +152,8 @@ $query = new WP_Query([
     'post_type' => ['post','tv'],
     'posts_per_page' => 20,
     'post_status' => 'publish',
+    'orderby' => 'date',
+    'order' => 'DESC',
     'no_found_rows' => true
 ]);
 ?>
