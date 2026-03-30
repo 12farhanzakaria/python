@@ -1,18 +1,9 @@
 RewriteEngine On
 
-# =====================
-# DETAIL (TYPE + ID)
-# =====================
 RewriteRule ^movie/([0-9]+)/?$ index.php?type=movie&id=$1 [L]
 RewriteRule ^tv/([0-9]+)/?$ index.php?type=tv&id=$1 [L]
 
-# =====================
-# CATEGORY (ID)
-# =====================
 RewriteRule ^category/([0-9]+)/page/([0-9]+)/?$ index.php?category_id=$1&page=$2 [L]
 RewriteRule ^category/([0-9]+)/?$ index.php?category_id=$1 [L]
 
-# =====================
-# PAGE
-# =====================
 RewriteRule ^page/([0-9]+)/?$ index.php?page=$1 [L]
