@@ -216,14 +216,30 @@ $query = new WP_Query($args);
 
 <?php
 $total_pages = $query->max_num_pages;
+$range = 2;
 
-for ($i = 1; $i <= $total_pages; $i++):
+$start = max(1, $paged - $range);
+$end   = min($total_pages, $paged + $range);
+
+// page awal
+if ($start > 1) {
+    echo '<a href="?cat='.$cat_slug.'&page=1">1</a> ... ';
+}
+
+// loop tengah
+for ($i = $start; $i <= $end; $i++):
 ?>
     <a href="?cat=<?= $cat_slug ?>&page=<?= $i ?>"
        style="margin:5px; <?= ($i == $paged ? 'color:yellow;' : '') ?>">
        <?= $i ?>
     </a>
-<?php endfor; ?>
+<?php endfor;
+
+// page akhir
+if ($end < $total_pages) {
+    echo ' ... <a href="?cat='.$cat_slug.'&page='.$total_pages.'">'.$total_pages.'</a>';
+}
+?>
 
 <?php if ($paged < $total_pages): ?>
     <a href="?cat=<?= $cat_slug ?>&page=<?= $paged + 1 ?>">Next ➡</a>
