@@ -1,91 +1,103 @@
 <?php
-require_once __DIR__ . '/../wp-load.php';
+/**
+ * The main template file.
+ *
+ * This is the most generic template file in a WordPress theme
+ * and one of the two required files for a theme (the other being style.css).
+ * It is used to display a page when nothing more specific matches a query.
+ * E.g., it puts together the home page when no home.php file exists.
+ *
+ * @link https://codex.wordpress.org/Template_Hierarchy
+ *
+ * @package Muvipro
+ */
 
-// ambil parameter
-$id = isset($_GET['id']) ? (int) $_GET['id'] : 0;
-$type = $_GET['type'] ?? '';
-$category_id = isset($_GET['category']) ? (int) $_GET['category'] : 0;
-$page = isset($_GET['page']) ? (int) $_GET['page'] : 1;
-
-if ($page < 1) $page = 1;
-
-// =====================
-// DETAIL
-// =====================
-if ($id && $type) {
-
-    $post = get_post($id);
-    if (!$post) exit('Not found');
-
-    $title = get_the_title($id);
-    $thumb = get_the_post_thumbnail_url($id, 'thumbnail');
-
-    echo "<h1>$title</h1>";
-    echo "<img src='$thumb'>";
-    echo "<br><a href='?'>Kembali</a>";
-
-    exit;
+/* Exit if accessed directly */
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
 }
 
-// =====================
-// CATEGORY LIST
-// =====================
-$categories = get_categories(['hide_empty' => true]);
+get_header();
 
-echo "<h2>Category:</h2>";
-echo "<a href='?'>Semua</a> ";
+// Sidebar layout options via customizer.
+$sidebar_layout = get_theme_mod( 'gmr_blog_sidebar', 'sidebar' );
 
-foreach ($categories as $cat) {
-    echo "<a href='?category={$cat->term_id}'>{$cat->name}</a> ";
+if ( 'fullwidth' === $sidebar_layout ) {
+	$class_sidebar = ' col-md-12';
+
+} else {
+	$class_sidebar = ' col-md-9';
+
 }
 
-// =====================
-// QUERY
-// =====================
-$args = [
-    'post_type' => ['post','tv'],
-    'posts_per_page' => 20,
-    'paged' => $page
-];
+?>
 
-if ($category_id) {
-    $args['cat'] = $category_id;
+<div id="primary" class="content-area<?php echo esc_attr( $class_sidebar ); ?> gmr-grid">
+
+	<?php
+	$texthomepage = get_theme_mod( 'gmr_texttitlehomepage' );
+	if ( $texthomepage ) :
+		// sanitize html output.
+		echo '<h3 class="homemodule-title">' . esc_html( $texthomepage ) . '</h3>';
+	else :
+		echo '<h3 class="homemodule-title">' . esc_html__( 'Latest Movie', 'muvipro' ) . '</h3>';
+	endif;
+	?>
+
+	<main id="main" class="site-main" role="main">
+
+	<?php do_action( 'idmuvi_core_topbanner_archive' ); ?>
+
+	<?php
+	if ( have_posts() ) :
+
+		if ( is_home() && ! is_front_page() ) :
+			?>
+			<header>
+				<h1 class="page-title screen-reader-text" <?php echo muvipro_itemprop_schema( 'headline' ); /* phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped */ ?>><?php single_post_title(); ?></h1>
+			</header>
+			<?php
+		endif;
+
+		if ( is_front_page() && is_home() ) :
+			?>
+			<header>
+				<h1 class="page-title screen-reader-text"><?php bloginfo( 'name' ); ?></h1>
+			</header>
+			<?php
+		endif;
+
+		echo '<div id="gmr-main-load" class="row grid-container">';
+		/* Start the Loop */
+		while ( have_posts() ) :
+			the_post();
+
+			/*
+			 * Include the Post-Format-specific template for the content.
+			 * If you want to override this in a child theme, then include a file
+			 * called content-___.php (where ___ is the Post Format name) and that will be used instead.
+			 */
+			get_template_part( 'template-parts/content', get_post_format() );
+
+		endwhile;
+
+		echo '</div>';
+
+		echo gmr_get_pagination(); /* phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped */
+
+	else :
+
+		get_template_part( 'template-parts/content', 'none' );
+
+	endif;
+	?>
+
+	</main><!-- #main -->
+</div><!-- #primary -->
+
+<?php
+if ( 'sidebar' === $sidebar_layout ) {
+	get_sidebar();
 }
 
-$query = new WP_Query($args);
-
-// =====================
-// LIST
-// =====================
-echo "<h2>List:</h2>";
-
-while ($query->have_posts()) {
-    $query->the_post();
-
-    $id = get_the_ID();
-    $title = get_the_title();
-    $thumb = get_the_post_thumbnail_url($id, 'thumbnail');
-    $type = get_post_type() === 'tv' ? 'tv' : 'movie';
-
-    echo "<div>";
-    echo "<a href='?type=$type&id=$id'>";
-    echo "<img src='$thumb' width='120'><br>";
-    echo "$title</a>";
-    echo "</div><br>";
-}
-
-wp_reset_postdata();
-
-// =====================
-// PAGINATION
-// =====================
-if ($query->max_num_pages > 1) {
-
-    if ($page > 1) {
-        echo "<a href='?page=" . ($page - 1) . "'>Prev</a> ";
-    }
-
-    if ($page < $query->max_num_pages) {
-        echo "<a href='?page=" . ($page + 1) . "'>Next</a>";
-    }
-}
+get_footer();
