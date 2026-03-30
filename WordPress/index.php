@@ -6,7 +6,8 @@ while (!file_exists($path . '/wp-load.php')) {
 }
 require_once $path . '/wp-load.php';
 $cat_slug = $_GET['cat'] ?? '';
-
+$paged = isset($_GET['page']) ? (int) $_GET['page'] : 1;
+if ($paged < 1) $paged = 1;
 $categories = get_categories([
     'hide_empty' => true
 ]);
@@ -158,7 +159,8 @@ $args = [
     'post_status' => 'publish',
     'orderby' => 'date',
     'order' => 'DESC',
-    'no_found_rows' => true
+    'no_found_rows' => false, // ⚠️ ini harus false untuk pagination
+    'paged' => $paged
 ];
 
 // filter kategori
@@ -206,6 +208,27 @@ $query = new WP_Query($args);
     </div>
 <?php endwhile; wp_reset_postdata(); ?>
 </div>
+<div style="padding:20px; text-align:center;">
 
+<?php if ($paged > 1): ?>
+    <a href="?cat=<?= $cat_slug ?>&page=<?= $paged - 1 ?>">⬅ Prev</a>
+<?php endif; ?>
+
+<?php
+$total_pages = $query->max_num_pages;
+
+for ($i = 1; $i <= $total_pages; $i++):
+?>
+    <a href="?cat=<?= $cat_slug ?>&page=<?= $i ?>"
+       style="margin:5px; <?= ($i == $paged ? 'color:yellow;' : '') ?>">
+       <?= $i ?>
+    </a>
+<?php endfor; ?>
+
+<?php if ($paged < $total_pages): ?>
+    <a href="?cat=<?= $cat_slug ?>&page=<?= $paged + 1 ?>">Next ➡</a>
+<?php endif; ?>
+
+</div>
 </body>
 </html>
