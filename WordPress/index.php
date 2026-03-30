@@ -16,7 +16,9 @@ define('BASE_URL', '/api');
 require_once __DIR__ . '/../wp-load.php';
 
 // matikan redirect WP
-remove_all_actions('template_redirect');
+remove_action('template_redirect', 'redirect_canonical');
+remove_action('template_redirect', 'wp_redirect_admin_locations');
+add_filter('redirect_canonical', '__return_false');
 
 // =====================
 // 🔥 ROUTER (STRICT)
