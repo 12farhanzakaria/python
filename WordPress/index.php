@@ -11,61 +11,90 @@ while (!file_exists($path . '/wp-load.php')) {
 }
 require_once $path . '/wp-load.php';
 
-// 🔥 MATIKAN REDIRECT WP
+// matikan redirect WP
 remove_all_actions('template_redirect');
 
 // =====================
-// GET PARAM
+// 🔥 ROUTER (STRICT)
 // =====================
-$id = isset($_GET['id']) ? (int) $_GET['id'] : 0;
-$type = $_GET['type'] ?? '';
-$category_id = isset($_GET['category_id']) ? (int) $_GET['category_id'] : 0;
-$paged = isset($_GET['page']) ? (int) $_GET['page'] : 1;
-if ($paged < 1) $paged = 1;
+$uri = trim(parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH), '/');
+$segments = explode('/', $uri);
 
-// =====================
-// 🔥 SMART CACHE CONFIG
-// =====================
+// hapus "api"
+if (!empty($segments) && $segments[0] === 'api') {
+    array_shift($segments);
+}
 
-// hanya cache halaman list
-$is_list = !$id;
+$_GET = [];
+$is_valid_route = false;
 
-// TTL (detik)
-$cache_ttl = 60;
+// movie
+if (($segments[0] ?? '') === 'movie' && isset($segments[1]) && is_numeric($segments[1])) {
+    $_GET['type'] = 'movie';
+    $_GET['id'] = (int)$segments[1];
+    $is_valid_route = true;
+}
 
-// cache key unik
-$cache_key = md5($_SERVER['REQUEST_URI']);
-$cache_file = __DIR__ . '/cache_' . $cache_key . '.html';
+// tv
+elseif (($segments[0] ?? '') === 'tv' && isset($segments[1]) && is_numeric($segments[1])) {
+    $_GET['type'] = 'tv';
+    $_GET['id'] = (int)$segments[1];
+    $is_valid_route = true;
+}
 
-// 🔥 ambil last update post
-$last_post = get_posts([
-    'numberposts' => 1,
-    'post_type' => ['post','tv'],
-    'post_status' => 'publish'
-]);
+// category
+elseif (($segments[0] ?? '') === 'category' && isset($segments[1]) && is_numeric($segments[1])) {
+    $_GET['category_id'] = (int)$segments[1];
+    $is_valid_route = true;
 
-$last_update = !empty($last_post) ? strtotime($last_post[0]->post_modified) : time();
-
-// =====================
-// 🔥 LOAD CACHE
-// =====================
-if ($is_list && file_exists($cache_file)) {
-    $file_time = filemtime($cache_file);
-
-    // valid jika:
-    // - belum expired
-    // - tidak ada post baru
-    if (
-        (time() - $file_time < $cache_ttl) &&
-        ($file_time >= $last_update)
-    ) {
-        readfile($cache_file);
-        exit;
+    if (($segments[2] ?? '') === 'page' && isset($segments[3]) && is_numeric($segments[3])) {
+        $_GET['page'] = (int)$segments[3];
     }
 }
 
-// mulai buffer
-if ($is_list) ob_start();
+// page
+elseif (($segments[0] ?? '') === 'page' && isset($segments[1]) && is_numeric($segments[1])) {
+    $_GET['page'] = (int)$segments[1];
+    $is_valid_route = true;
+}
+
+// homepage
+elseif (empty($segments[0])) {
+    $is_valid_route = true;
+}
+
+// invalid route
+if (!$is_valid_route) {
+    http_response_code(404);
+    exit('404 Not Found');
+}
+
+// =====================
+// VALIDASI DATA
+// =====================
+if (!empty($_GET['id'])) {
+    if (!get_post($_GET['id'])) {
+        http_response_code(404);
+        exit('Post Not Found');
+    }
+}
+
+if (!empty($_GET['category_id'])) {
+    if (!get_category($_GET['category_id'])) {
+        http_response_code(404);
+        exit('Category Not Found');
+    }
+}
+
+// =====================
+// PARAM FINAL
+// =====================
+$id = $_GET['id'] ?? 0;
+$type = $_GET['type'] ?? '';
+$category_id = $_GET['category_id'] ?? 0;
+$paged = $_GET['page'] ?? 1;
+
+if ($paged < 1) $paged = 1;
 
 // =====================
 // URL BUILDER
@@ -78,15 +107,9 @@ function build_url($category_id, $page) {
 }
 
 // =====================
-// 🔥 DETAIL MODE (NO CACHE)
+// DETAIL PAGE
 // =====================
 if ($id && $type) {
-
-    $post = get_post($id);
-    if (!$post) exit('Not found');
-
-    if ($type === 'tv' && $post->post_type !== 'tv') exit('Invalid');
-    if ($type === 'movie' && $post->post_type !== 'post') exit('Invalid');
 
     $title = str_replace(['Nonton ', ' Sub Indo', ' hd', ' jf'], '', get_the_title($id));
     $thumb = get_the_post_thumbnail_url($id, 'thumbnail');
@@ -153,6 +176,7 @@ $query = new WP_Query($args);
 <head>
 <title><?= $category_id ? "Kategori $category_id" : "Film Terbaru" ?></title>
 <link rel="canonical" href="<?= build_url($category_id, $paged) ?>">
+
 <style>
 body{background:#111;color:#fff;font-family:Arial}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:15px;padding:20px}
@@ -201,13 +225,3 @@ style="<?= ($category_id == $cat->term_id ? 'color:yellow;' : '') ?>">
 
 </body>
 </html>
-
-<?php
-// =====================
-// 🔥 SAVE CACHE
-// =====================
-if ($is_list) {
-    $html = ob_get_contents();
-    file_put_contents($cache_file, $html);
-    ob_end_flush();
-}
