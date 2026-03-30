@@ -1,6 +1,6 @@
 <?php
 // =====================
-// NO CACHE (ANTI SERVER CACHE)
+// NO CACHE
 // =====================
 header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
 header("Pragma: no-cache");
@@ -56,13 +56,11 @@ function build_url($category, $page) {
 if ($id) {
 
     $post = get_post($id);
-    if (!$post) exit('Not found');
 
     $title = str_replace(['Nonton ', ' Sub Indo', ' hd', ' jf'], '', get_the_title($id));
     $thumb = get_the_post_thumbnail_url($id, 'full');
     $meta = get_post_meta($id);
 
-    // views
     $views = 0;
     foreach (['post_views_count','views','view_count','idmuv_views'] as $k) {
         if (!empty($meta[$k][0])) {
@@ -71,14 +69,12 @@ if ($id) {
         }
     }
 
-    // meta bersih
     $all_meta = [];
     foreach ($meta as $key => $val) {
         if (strpos($key, '_') === 0) continue;
         $all_meta[$key] = maybe_unserialize($val[0]);
     }
 
-    // taxonomy
     $taxonomies = get_object_taxonomies($post->post_type);
     $terms_data = [];
 
@@ -135,21 +131,16 @@ exit;
 // =====================
 // CATEGORY LIST
 // =====================
-$categories = get_categories([
-    'hide_empty' => true
-]);
+$categories = get_categories(['hide_empty' => true]);
 
 // =====================
-// QUERY LIST
+// QUERY
 // =====================
 $args = [
     'post_type' => ['post','tv'],
     'posts_per_page' => 20,
-    'post_status' => 'publish',
-    'orderby' => 'date',
-    'order' => 'DESC',
     'paged' => $page,
-    'ignore_sticky_posts' => true
+    'post_status' => 'publish'
 ];
 
 if ($category_id) {
@@ -169,7 +160,8 @@ body{background:#111;color:#fff;font-family:Arial}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:15px;padding:20px}
 .item{background:#222;padding:10px;border-radius:10px;text-align:center}
 img{width:100%;border-radius:10px}
-a{color:#fff;text-decoration:none}
+a{color:#fff;text-decoration:none;padding:5px 10px;margin:2px;display:inline-block;background:#222;border-radius:5px}
+b{padding:5px 10px;background:yellow;color:#000;border-radius:5px}
 </style>
 </head>
 <body>
@@ -180,8 +172,7 @@ a{color:#fff;text-decoration:none}
 <a href="<?= BASE_URL ?>">Semua</a>
 
 <?php foreach ($categories as $cat): ?>
-<a href="<?= BASE_URL ?>?category=<?= $cat->term_id ?>"
-style="<?= ($category_id == $cat->term_id ? 'color:yellow;' : '') ?>">
+<a href="<?= BASE_URL ?>?category=<?= $cat->term_id ?>">
 <?= $cat->name ?>
 </a>
 <?php endforeach; ?>
@@ -189,25 +180,51 @@ style="<?= ($category_id == $cat->term_id ? 'color:yellow;' : '') ?>">
 
 <div class="grid">
 <?php while ($query->have_posts()): $query->the_post(); ?>
-<?php $ptype = get_post_type() === 'tv' ? 'tv' : 'movie'; ?>
 <div class="item">
 <a href="<?= BASE_URL ?>?id=<?= get_the_ID() ?>">
-<img src="<?= get_the_post_thumbnail_url(get_the_ID(), 'thumbnail'); ?>" loading="lazy">
+<img src="<?= get_the_post_thumbnail_url(get_the_ID(), 'thumbnail'); ?>">
 <div><?= get_the_title(); ?></div>
 </a>
 </div>
 <?php endwhile; wp_reset_postdata(); ?>
 </div>
 
+<!-- PAGINATION -->
 <?php if ($query->max_num_pages > 1): ?>
 <div style="padding:20px;text-align:center;">
-<?php if ($page > 1): ?>
-<a href="<?= build_url($category_id,$page-1) ?>">⬅ Prev</a>
-<?php endif; ?>
 
-<?php if ($page < $query->max_num_pages): ?>
-<a href="<?= build_url($category_id,$page+1) ?>">Next ➡</a>
-<?php endif; ?>
+<?php
+$total = $query->max_num_pages;
+$current = $page;
+
+$start = max(1, $current - 2);
+$end   = min($total, $current + 2);
+
+if ($current > 1) {
+    echo '<a href="'.build_url($category_id, $current - 1).'">⬅ Prev</a>';
+}
+
+if ($start > 1) {
+    echo '<a href="'.build_url($category_id, 1).'">1</a> ...';
+}
+
+for ($i = $start; $i <= $end; $i++) {
+    if ($i == $current) {
+        echo '<b>'.$i.'</b>';
+    } else {
+        echo '<a href="'.build_url($category_id, $i).'">'.$i.'</a>';
+    }
+}
+
+if ($end < $total) {
+    echo '... <a href="'.build_url($category_id, $total).'">'.$total.'</a>';
+}
+
+if ($current < $total) {
+    echo '<a href="'.build_url($category_id, $current + 1).'">Next ➡</a>';
+}
+?>
+
 </div>
 <?php endif; ?>
 
