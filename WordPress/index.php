@@ -1,6 +1,6 @@
 <?php
 // =====================
-// NO CACHE
+// NO CACHE (ANTI SERVER CACHE)
 // =====================
 header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
 header("Pragma: no-cache");
@@ -22,7 +22,6 @@ add_filter('redirect_canonical', '__return_false');
 // PARAM
 // =====================
 $id = isset($_GET['id']) ? (int) $_GET['id'] : 0;
-$type = $_GET['type'] ?? '';
 $category_id = isset($_GET['category']) ? (int) $_GET['category'] : 0;
 $page = isset($_GET['page']) ? (int) $_GET['page'] : 1;
 
@@ -46,19 +45,18 @@ if ($category_id && !get_category($category_id)) {
 // =====================
 function build_url($category, $page) {
     $url = BASE_URL . '?';
-
     if ($category) $url .= "category=$category&";
     if ($page > 1) $url .= "page=$page&";
-
     return rtrim($url, '&');
 }
 
 // =====================
 // DETAIL PAGE
 // =====================
-if ($id && $type) {
+if ($id) {
 
     $post = get_post($id);
+    if (!$post) exit('Not found');
 
     $title = str_replace(['Nonton ', ' Sub Indo', ' hd', ' jf'], '', get_the_title($id));
     $thumb = get_the_post_thumbnail_url($id, 'full');
@@ -97,8 +95,12 @@ if ($id && $type) {
 <html>
 <head>
 <title><?= htmlspecialchars($title) ?></title>
+<style>
+body{background:#111;color:#fff;font-family:Arial;padding:20px}
+img{border-radius:10px}
+</style>
 </head>
-<body style="background:#111;color:#fff;font-family:Arial;padding:20px;">
+<body>
 
 <h1><?= $title ?></h1>
 
@@ -138,7 +140,7 @@ $categories = get_categories([
 ]);
 
 // =====================
-// QUERY
+// QUERY LIST
 // =====================
 $args = [
     'post_type' => ['post','tv'],
@@ -165,8 +167,8 @@ $query = new WP_Query($args);
 <style>
 body{background:#111;color:#fff;font-family:Arial}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:15px;padding:20px}
-.item{background:#222;padding:10px;border-radius:8px;text-align:center}
-img{width:100%}
+.item{background:#222;padding:10px;border-radius:10px;text-align:center}
+img{width:100%;border-radius:10px}
 a{color:#fff;text-decoration:none}
 </style>
 </head>
@@ -189,7 +191,7 @@ style="<?= ($category_id == $cat->term_id ? 'color:yellow;' : '') ?>">
 <?php while ($query->have_posts()): $query->the_post(); ?>
 <?php $ptype = get_post_type() === 'tv' ? 'tv' : 'movie'; ?>
 <div class="item">
-<a href="<?= BASE_URL ?>?type=<?= $ptype ?>&id=<?= get_the_ID() ?>">
+<a href="<?= BASE_URL ?>?id=<?= get_the_ID() ?>">
 <img src="<?= get_the_post_thumbnail_url(get_the_ID(), 'thumbnail'); ?>" loading="lazy">
 <div><?= get_the_title(); ?></div>
 </a>
