@@ -1,10 +1,17 @@
 <?php
 // =====================
-// NO CACHE
+// 🔥 BYPASS CACHE TANPA UBAH URL
 // =====================
-header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
+if (!isset($_COOKIE['nocache_api'])) {
+    setcookie("nocache_api", "1", time()+3600, "/");
+}
+
+header("Cache-Control: private, no-store, no-cache, must-revalidate, max-age=0, s-maxage=0");
 header("Pragma: no-cache");
 header("Expires: 0");
+header("X-LiteSpeed-Cache-Control: no-cache");
+header("X-Accel-Expires: 0");
+header("Vary: Cookie");
 
 define('WP_USE_THEMES', false);
 define('BASE_URL', '/api/index.php');
@@ -61,6 +68,7 @@ if ($id) {
     $thumb = get_the_post_thumbnail_url($id, 'full');
     $meta = get_post_meta($id);
 
+    // views
     $views = 0;
     foreach (['post_views_count','views','view_count','idmuv_views'] as $k) {
         if (!empty($meta[$k][0])) {
@@ -69,12 +77,14 @@ if ($id) {
         }
     }
 
+    // meta bersih
     $all_meta = [];
     foreach ($meta as $key => $val) {
         if (strpos($key, '_') === 0) continue;
         $all_meta[$key] = maybe_unserialize($val[0]);
     }
 
+    // taxonomy
     $taxonomies = get_object_taxonomies($post->post_type);
     $terms_data = [];
 
@@ -134,7 +144,7 @@ exit;
 $categories = get_categories(['hide_empty' => true]);
 
 // =====================
-// QUERY
+// QUERY LIST
 // =====================
 $args = [
     'post_type' => ['post','tv'],
