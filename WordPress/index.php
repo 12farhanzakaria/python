@@ -1,12 +1,5 @@
 <?php
-// =====================
-// ⚡ SPEED MODE
-// =====================
 define('WP_USE_THEMES', false);
-
-// =====================
-// 🔥 BASE URL
-// =====================
 define('BASE_URL', '/api');
 
 // =====================
@@ -26,11 +19,53 @@ remove_all_actions('template_redirect');
 // =====================
 $id = isset($_GET['id']) ? (int) $_GET['id'] : 0;
 $type = $_GET['type'] ?? '';
-
 $category_id = isset($_GET['category_id']) ? (int) $_GET['category_id'] : 0;
-
 $paged = isset($_GET['page']) ? (int) $_GET['page'] : 1;
 if ($paged < 1) $paged = 1;
+
+// =====================
+// 🔥 SMART CACHE CONFIG
+// =====================
+
+// hanya cache halaman list
+$is_list = !$id;
+
+// TTL (detik)
+$cache_ttl = 60;
+
+// cache key unik
+$cache_key = md5($_SERVER['REQUEST_URI']);
+$cache_file = __DIR__ . '/cache_' . $cache_key . '.html';
+
+// 🔥 ambil last update post
+$last_post = get_posts([
+    'numberposts' => 1,
+    'post_type' => ['post','tv'],
+    'post_status' => 'publish'
+]);
+
+$last_update = !empty($last_post) ? strtotime($last_post[0]->post_modified) : time();
+
+// =====================
+// 🔥 LOAD CACHE
+// =====================
+if ($is_list && file_exists($cache_file)) {
+    $file_time = filemtime($cache_file);
+
+    // valid jika:
+    // - belum expired
+    // - tidak ada post baru
+    if (
+        (time() - $file_time < $cache_ttl) &&
+        ($file_time >= $last_update)
+    ) {
+        readfile($cache_file);
+        exit;
+    }
+}
+
+// mulai buffer
+if ($is_list) ob_start();
 
 // =====================
 // URL BUILDER
@@ -43,7 +78,7 @@ function build_url($category_id, $page) {
 }
 
 // =====================
-// 🔥 DETAIL MODE
+// 🔥 DETAIL MODE (NO CACHE)
 // =====================
 if ($id && $type) {
 
@@ -55,7 +90,6 @@ if ($id && $type) {
 
     $title = str_replace(['Nonton ', ' Sub Indo', ' hd', ' jf'], '', get_the_title($id));
     $thumb = get_the_post_thumbnail_url($id, 'thumbnail');
-
     $meta = get_post_meta($id);
 
     $views = 0;
@@ -70,27 +104,14 @@ if ($id && $type) {
 <html>
 <head>
 <title><?= htmlspecialchars($title) ?></title>
-<meta name="description" content="Nonton <?= $title ?> sub indo lengkap.">
 <link rel="canonical" href="<?= BASE_URL ?>/<?= $type ?>/<?= $id ?>">
 </head>
 <body style="background:#111;color:#fff;font-family:Arial;padding:20px;">
 
 <h1><?= $title ?></h1>
-
 <img src="<?= $thumb ?>">
-
 <div>Views: <?= number_format($views) ?></div>
 
-<?php if (!empty($meta['episodex'][0])): ?>
-<div>Episode: <?= $meta['episodex'][0] ?></div>
-<?php endif; ?>
-
-<?php if (!empty($meta['IDMUVICORE_Trailer'][0])): ?>
-<iframe width="100%" height="400"
-src="https://www.youtube.com/embed/<?= $meta['IDMUVICORE_Trailer'][0] ?>"></iframe>
-<?php endif; ?>
-
-<br><br>
 <a href="<?= BASE_URL ?>/">⬅ Kembali</a>
 
 </body>
@@ -108,7 +129,7 @@ $categories = get_categories([
 ]);
 
 // =====================
-// QUERY (STABIL)
+// QUERY
 // =====================
 $args = [
     'post_type' => ['post','tv'],
@@ -131,9 +152,7 @@ $query = new WP_Query($args);
 <html>
 <head>
 <title><?= $category_id ? "Kategori $category_id" : "Film Terbaru" ?></title>
-<meta name="description" content="Nonton film terbaru sub indo lengkap.">
 <link rel="canonical" href="<?= build_url($category_id, $paged) ?>">
-
 <style>
 body{background:#111;color:#fff;font-family:Arial}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:15px;padding:20px}
@@ -146,7 +165,6 @@ a{color:#fff;text-decoration:none}
 
 <h2 style="padding:20px;">🔥 Film Terbaru</h2>
 
-<!-- CATEGORY -->
 <div style="padding:20px;">
 <a href="<?= BASE_URL ?>/">Semua</a>
 
@@ -158,7 +176,6 @@ style="<?= ($category_id == $cat->term_id ? 'color:yellow;' : '') ?>">
 <?php endforeach; ?>
 </div>
 
-<!-- GRID -->
 <div class="grid">
 <?php while ($query->have_posts()): $query->the_post(); ?>
 <?php $ptype = get_post_type() === 'tv' ? 'tv' : 'movie'; ?>
@@ -171,7 +188,6 @@ style="<?= ($category_id == $cat->term_id ? 'color:yellow;' : '') ?>">
 <?php endwhile; wp_reset_postdata(); ?>
 </div>
 
-<!-- PAGINATION -->
 <?php if ($query->max_num_pages > 1): ?>
 <div style="padding:20px;text-align:center;">
 <?php if ($paged > 1): ?>
@@ -185,3 +201,13 @@ style="<?= ($category_id == $cat->term_id ? 'color:yellow;' : '') ?>">
 
 </body>
 </html>
+
+<?php
+// =====================
+// 🔥 SAVE CACHE
+// =====================
+if ($is_list) {
+    $html = ob_get_contents();
+    file_put_contents($cache_file, $html);
+    ob_end_flush();
+}
