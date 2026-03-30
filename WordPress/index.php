@@ -5,6 +5,11 @@
 define('WP_USE_THEMES', false);
 
 // =====================
+// 🔥 BASE URL (WAJIB)
+// =====================
+define('BASE_URL', '/api');
+
+// =====================
 // ⚡ CACHE SYSTEM
 // =====================
 $cache_file = __DIR__ . '/cache_' . md5($_SERVER['REQUEST_URI']) . '.html';
@@ -40,10 +45,10 @@ if ($paged < 1) $paged = 1;
 // URL BUILDER
 // =====================
 function build_url($category_id, $page) {
-    if ($category_id && $page > 1) return "/category/$category_id/page/$page";
-    if ($category_id) return "/category/$category_id";
-    if ($page > 1) return "/page/$page";
-    return "/";
+    if ($category_id && $page > 1) return BASE_URL . "/category/$category_id/page/$page";
+    if ($category_id) return BASE_URL . "/category/$category_id";
+    if ($page > 1) return BASE_URL . "/page/$page";
+    return BASE_URL . "/";
 }
 
 // =====================
@@ -75,12 +80,14 @@ if ($id && $type) {
 <head>
 <title><?= htmlspecialchars($title) ?></title>
 <meta name="description" content="Nonton <?= $title ?> sub indo lengkap.">
-<link rel="canonical" href="/<?= $type ?>/<?= $id ?>">
+<link rel="canonical" href="<?= BASE_URL ?>/<?= $type ?>/<?= $id ?>">
 </head>
 <body style="background:#111;color:#fff;font-family:Arial;padding:20px;">
 
 <h1><?= $title ?></h1>
+
 <img src="<?= $thumb ?>" style="max-width:250px;">
+
 <div>Views: <?= number_format($views) ?></div>
 
 <?php if (!empty($meta['episodex'][0])): ?>
@@ -92,7 +99,8 @@ if ($id && $type) {
 src="https://www.youtube.com/embed/<?= $meta['IDMUVICORE_Trailer'][0] ?>"></iframe>
 <?php endif; ?>
 
-<br><br><a href="/">⬅ Kembali</a>
+<br><br>
+<a href="<?= BASE_URL ?>/">⬅ Kembali</a>
 
 </body>
 </html>
@@ -157,9 +165,11 @@ a{color:#fff;text-decoration:none}
 <!-- CATEGORY -->
 <div style="padding:20px;">
 <b>Kategori:</b>
-<a href="/">Semua</a>
+
+<a href="<?= BASE_URL ?>/">Semua</a>
+
 <?php foreach ($categories as $cat): ?>
-<a href="/category/<?= $cat->term_id ?>"
+<a href="<?= BASE_URL ?>/category/<?= $cat->term_id ?>"
 style="<?= ($category_id == $cat->term_id ? 'color:yellow;' : '') ?>">
 <?= $cat->name ?>
 </a>
@@ -171,7 +181,7 @@ style="<?= ($category_id == $cat->term_id ? 'color:yellow;' : '') ?>">
 <?php foreach ($query->posts as $id): ?>
 <?php $ptype = get_post_type($id) === 'tv' ? 'tv' : 'movie'; ?>
 <div class="item">
-<a href="/<?= $ptype ?>/<?= $id ?>">
+<a href="<?= BASE_URL ?>/<?= $ptype ?>/<?= $id ?>">
 <img src="<?= get_the_post_thumbnail_url($id, 'medium'); ?>" loading="lazy">
 <div><?= get_the_title($id); ?></div>
 </a>
