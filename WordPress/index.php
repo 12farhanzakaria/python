@@ -1,28 +1,117 @@
 <?php
 // =====================
-// 🔥 TEST INDEX LANGSUNG (TANPA QUERY)
+// AUTO BYPASS CACHE
 // =====================
-
-// cookie bypass
-if (!isset($_COOKIE['nocache_index'])) {
-    setcookie("nocache_index", time(), time()+3600, "/");
+if (!isset($_GET['_'])) {
+    $p = $_GET;
+    $p['_'] = time();
+    header("Location: ?" . http_build_query($p));
+    exit;
 }
 
-// header anti cache
-header("Content-Type: text/plain");
+$cache = $_GET['_'];
 
-header("Cache-Control: private, no-store, no-cache, must-revalidate, max-age=0, s-maxage=0");
-header("Pragma: no-cache");
-header("Expires: 0");
-header("X-LiteSpeed-Cache-Control: no-cache");
-header("X-Accel-Expires: 0");
-header("Vary: Cookie");
+// =====================
+// LOAD WORDPRESS
+// =====================
+define('WP_USE_THEMES', false);
+require_once __DIR__ . '/../wp-load.php';
 
-// output unik
-echo "=== INDEX DIRECT TEST ===\n\n";
+// disable redirect WP
+remove_action('template_redirect', 'redirect_canonical');
+add_filter('redirect_canonical', '__return_false');
 
-echo "TIME: " . time() . "\n";
-echo "RAND: " . rand(1000,9999) . "\n\n";
+// =====================
+// PARAM
+// =====================
+$id  = isset($_GET['id']) ? (int)$_GET['id'] : 0;
+$cat = isset($_GET['category']) ? (int)$_GET['category'] : 0;
+$page = max(1, (int)($_GET['page'] ?? 1));
 
-echo "URI: " . $_SERVER['REQUEST_URI'] . "\n";
-echo "IP: " . ($_SERVER['REMOTE_ADDR'] ?? '-') . "\n";
+// =====================
+// DETAIL PAGE
+// =====================
+if ($id) {
+
+    $post = get_post($id);
+    if (!$post) exit('Not found');
+
+    $title = get_the_title($post);
+    $thumb = get_the_post_thumbnail_url($post, 'full');
+
+    echo "<h1>$title</h1>";
+
+    if ($thumb) {
+        echo "<img src='$thumb'><br><br>";
+    }
+
+    echo "<a href='?_= $cache'>Kembali</a>";
+    exit;
+}
+
+// =====================
+// LIST
+// =====================
+$q = new WP_Query([
+    'post_type' => ['post','tv'],
+    'posts_per_page' => 20,
+    'paged' => $page,
+    'cat' => $cat ?: ''
+]);
+
+$cats = get_categories(['hide_empty' => true]);
+
+echo "<h2>Film</h2>";
+
+// =====================
+// CATEGORY
+// =====================
+echo "<div>";
+echo "<a href='?_= $cache'>Semua</a> ";
+
+foreach ($cats as $c) {
+    echo "<a href='?category={$c->term_id}&_=$cache'>{$c->name}</a> ";
+}
+echo "</div><br>";
+
+// =====================
+// LIST ITEM
+// =====================
+while ($q->have_posts()) {
+    $q->the_post();
+
+    $id = get_the_ID();
+    $title = get_the_title();
+    $thumb = get_the_post_thumbnail_url($id, 'thumbnail');
+
+    echo "<div>";
+    echo "<a href='?id=$id&_=$cache'>";
+    
+    if ($thumb) {
+        echo "<img src='$thumb'><br>";
+    }
+
+    echo "$title</a>";
+    echo "</div><br>";
+}
+
+wp_reset_postdata();
+
+// =====================
+// PAGINATION
+// =====================
+if ($q->max_num_pages > 1) {
+
+    echo "<div>";
+
+    for ($i = 1; $i <= $q->max_num_pages; $i++) {
+
+        if ($i == $page) {
+            echo "<b>$i</b> ";
+        } else {
+            echo "<a href='?category=$cat&page=$i&_=$cache'>$i</a> ";
+        }
+    }
+
+    echo "</div>";
+}
