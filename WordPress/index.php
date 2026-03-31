@@ -1,7 +1,18 @@
 <?php
 
+// =====================
+// DB CONNECT (DIRECT)
+// =====================
 $conn = new mysqli("localhost", "juraganfilm", "Paddy-041200", "juragan");
-if ($conn->connect_error) die("DB Error");
+
+if ($conn->connect_error) {
+    die("DB ERROR");
+}
+
+// =====================
+// CONFIG
+// =====================
+$prefix = "wp_"; // ganti kalau prefix beda
 
 // =====================
 // PARAM
@@ -17,7 +28,7 @@ $genre = $_GET['genre'] ?? [];
 if (!is_array($genre)) $genre = [];
 
 // =====================
-// CONFIG
+// PAGINATION
 // =====================
 $limit  = 20;
 $offset = ($page - 1) * $limit;
@@ -27,7 +38,13 @@ $offset = ($page - 1) * $limit;
 // =====================
 if ($id) {
 
-    $q = $conn->query("SELECT post_title, post_date FROM wp_posts WHERE ID=$id");
+    $q = $conn->query("
+        SELECT post_title, post_date 
+        FROM {$prefix}posts 
+        WHERE ID=$id
+    ");
+
+    if (!$q) die($conn->error);
 
     if ($row = $q->fetch_assoc()) {
         echo "<h1>{$row['post_title']}</h1>";
@@ -39,7 +56,7 @@ if ($id) {
 }
 
 // =====================
-// BASE QUERY
+// BASE
 // =====================
 $where = "WHERE p.post_status='publish' AND p.post_type IN ('post','tv')";
 
@@ -49,51 +66,41 @@ if ($search) {
 }
 
 // =====================
-// JOIN (CATEGORY / GENRE)
+// JOIN
 // =====================
 $join = "";
 
-// category filter
-if ($category) {
+// category / genre
+if ($category || $genre) {
+
     $join .= "
-    JOIN wp_term_relationships tr ON p.ID = tr.object_id
-    JOIN wp_term_taxonomy tt ON tr.term_taxonomy_id = tt.term_taxonomy_id
+    JOIN {$prefix}term_relationships tr ON p.ID = tr.object_id
+    JOIN {$prefix}term_taxonomy tt ON tr.term_taxonomy_id = tt.term_taxonomy_id
+    JOIN {$prefix}terms t ON tt.term_id = t.term_id
     ";
+}
+
+// category
+if ($category) {
     $where .= " AND tt.term_id = $category";
 }
 
-// genre filter (multi)
+// genre (slug)
 if ($genre) {
 
-    $genre_ids = [];
+    $slugs = array_map(function($g) use ($conn){
+        return "'" . $conn->real_escape_string($g) . "'";
+    }, $genre);
 
-    foreach ($genre as $g) {
-        $g = $conn->real_escape_string($g);
-
-        $res = $conn->query("SELECT term_id FROM wp_terms WHERE slug='$g'");
-        if ($r = $res->fetch_assoc()) {
-            $genre_ids[] = $r['term_id'];
-        }
-    }
-
-    if ($genre_ids) {
-        $ids = implode(',', $genre_ids);
-
-        $join .= "
-        JOIN wp_term_relationships tr2 ON p.ID = tr2.object_id
-        JOIN wp_term_taxonomy tt2 ON tr2.term_taxonomy_id = tt2.term_taxonomy_id
-        ";
-
-        $where .= " AND tt2.term_id IN ($ids)";
-    }
+    $where .= " AND t.slug IN (" . implode(',', $slugs) . ")";
 }
 
 // =====================
-// YEAR (META)
+// YEAR
 // =====================
 if ($year) {
     $join .= "
-    JOIN wp_postmeta pm ON p.ID = pm.post_id
+    JOIN {$prefix}postmeta pm ON p.ID = pm.post_id
     ";
     $where .= " AND pm.meta_key='year' AND pm.meta_value='$year'";
 }
@@ -105,45 +112,51 @@ $order = "ORDER BY p.post_date DESC";
 
 if ($sort === 'views') {
     $join .= "
-    LEFT JOIN wp_postmeta pmv ON p.ID = pmv.post_id AND pmv.meta_key='views'
+    LEFT JOIN {$prefix}postmeta pmv 
+    ON p.ID = pmv.post_id AND pmv.meta_key='views'
     ";
     $order = "ORDER BY CAST(pmv.meta_value AS UNSIGNED) DESC";
 }
 
 // =====================
-// TOTAL COUNT
+// COUNT
 // =====================
-$total = $conn->query("
-    SELECT COUNT(DISTINCT p.ID) as total
-    FROM wp_posts p
-    $join
-    $where
-")->fetch_assoc()['total'];
+$count_sql = "
+SELECT COUNT(DISTINCT p.ID) as total
+FROM {$prefix}posts p
+$join
+$where
+";
 
+$count_res = $conn->query($count_sql);
+if (!$count_res) die("COUNT ERROR: ".$conn->error);
+
+$total = $count_res->fetch_assoc()['total'];
 $total_pages = max(1, ceil($total / $limit));
 
 // =====================
-// DATA QUERY
+// DATA
 // =====================
-$result = $conn->query("
-    SELECT DISTINCT p.ID, p.post_title
-    FROM wp_posts p
-    $join
-    $where
-    $order
-    LIMIT $limit OFFSET $offset
-");
+$data_sql = "
+SELECT DISTINCT p.ID, p.post_title
+FROM {$prefix}posts p
+$join
+$where
+$order
+LIMIT $limit OFFSET $offset
+";
+
+$res = $conn->query($data_sql);
+if (!$res) die("DATA ERROR: ".$conn->error);
 
 // =====================
 // OUTPUT
 // =====================
 echo "<h2>Film</h2>";
-
 echo "Total: $total<br>";
 echo "Page: $page / $total_pages<br><br>";
 
-while ($row = $result->fetch_assoc()) {
-
+while ($row = $res->fetch_assoc()) {
     echo "<div>";
     echo "<a href='?id={$row['ID']}'>";
     echo $row['post_title'];
@@ -163,11 +176,9 @@ if ($total_pages > 1) {
     }
 
     for ($i = max(1, $page-2); $i <= min($total_pages, $page+2); $i++) {
-        if ($i == $page) {
-            echo "<b>$i</b> ";
-        } else {
-            echo "<a href='?page=$i'>$i</a> ";
-        }
+        echo $i == $page
+            ? "<b>$i</b> "
+            : "<a href='?page=$i'>$i</a> ";
     }
 
     if ($page < $total_pages) {
