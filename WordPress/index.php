@@ -1,17 +1,5 @@
 <?php
 // =====================
-// AUTO BYPASS CACHE
-// =====================
-if (!isset($_GET['_'])) {
-    $p = $_GET;
-    $p['_'] = floor(time() / 60);
-    header("Location: ?" . http_build_query($p));
-    exit;
-}
-
-$cache = $_GET['_'];
-
-// =====================
 // LOAD WP
 // =====================
 define('WP_USE_THEMES', false);
@@ -21,34 +9,62 @@ remove_action('template_redirect', 'redirect_canonical');
 add_filter('redirect_canonical', '__return_false');
 
 // =====================
-// PARAM
+// VALIDASI PARAM
 // =====================
-$id       = (int)($_GET['id'] ?? 0);
-$category = (int)($_GET['category'] ?? 0);
-$page     = max(1, (int)($_GET['page'] ?? 1));
-$search   = trim($_GET['search'] ?? '');
-$genre    = $_GET['genre'] ?? [];
+$id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
+$category = isset($_GET['category']) ? (int)$_GET['category'] : 0;
+$page = max(1, (int)($_GET['page'] ?? 1));
+
+$search = isset($_GET['search']) ? sanitize_text_field($_GET['search']) : '';
+$year = isset($_GET['year']) ? preg_replace('/[^0-9]/', '', $_GET['year']) : '';
+
+$allowed_sort = ['latest','views'];
+$sort = in_array($_GET['sort'] ?? '', $allowed_sort) ? $_GET['sort'] : 'latest';
+
+$genre = $_GET['genre'] ?? [];
 if (!is_array($genre)) $genre = [];
-$year     = trim($_GET['year'] ?? '');
-$sort     = $_GET['sort'] ?? 'latest';
+$genre = array_map('sanitize_title', $genre);
+
+// =====================
+// NORMALISASI URL
+// =====================
+$params = [];
+
+if ($category) $params['category'] = $category;
+if ($search) $params['search'] = $search;
+if ($year) $params['year'] = $year;
+if ($sort !== 'latest') $params['sort'] = $sort;
+if ($genre) $params['genre'] = $genre;
+if ($page > 1) $params['page'] = $page;
+
+$params['_'] = floor(time()/60);
+
+if ($_GET != $params) {
+    header("Location: ?" . http_build_query($params));
+    exit;
+}
+
+$cache = $params['_'];
 
 // =====================
 // URL BUILDER
 // =====================
-function url($params = []) {
+function url($p = []) {
     global $cache;
-    $params['_'] = $cache;
-    return '?' . http_build_query($params);
+    $p['_'] = $cache;
+    return '?' . http_build_query($p);
 }
 
 function current_params() {
-    return [
-        'category' => $_GET['category'] ?? '',
-        'search'   => $_GET['search'] ?? '',
-        'year'     => $_GET['year'] ?? '',
-        'sort'     => $_GET['sort'] ?? '',
-        'genre'    => $_GET['genre'] ?? [],
-    ];
+    $p = [];
+
+    if (!empty($_GET['category'])) $p['category'] = (int)$_GET['category'];
+    if (!empty($_GET['search'])) $p['search'] = $_GET['search'];
+    if (!empty($_GET['year'])) $p['year'] = $_GET['year'];
+    if (!empty($_GET['sort']) && $_GET['sort'] !== 'latest') $p['sort'] = $_GET['sort'];
+    if (!empty($_GET['genre'])) $p['genre'] = $_GET['genre'];
+
+    return $p;
 }
 
 // =====================
@@ -85,6 +101,10 @@ if ($id) {
         }
     }
 
+    echo "<head>";
+    echo '<link rel="canonical" href="'.url(current_params()).'">';
+    echo "</head>";
+
     echo "<h1>$title</h1>";
     if ($thumb) echo "<img src='$thumb'><br><br>";
 
@@ -106,7 +126,7 @@ if ($id) {
 }
 
 // =====================
-// MAIN QUERY (FIXED)
+// MAIN QUERY
 // =====================
 $args = [
     'post_type' => ['post','tv'],
@@ -114,30 +134,24 @@ $args = [
     'paged' => $page,
     'no_found_rows' => false,
     'ignore_sticky_posts' => true,
-    'post_status' => 'publish',
 ];
 
-// filters
 if ($search) $args['s'] = $search;
 if ($category) $args['cat'] = $category;
 
 if ($genre) {
-    $args['tax_query'] = [
-        [
-            'taxonomy' => 'category',
-            'field' => 'slug',
-            'terms' => $genre,
-        ]
-    ];
+    $args['tax_query'] = [[
+        'taxonomy' => 'category',
+        'field' => 'slug',
+        'terms' => $genre,
+    ]];
 }
 
 if ($year) {
-    $args['meta_query'] = [
-        [
-            'key' => 'year',
-            'value' => $year,
-        ]
-    ];
+    $args['meta_query'] = [[
+        'key' => 'year',
+        'value' => $year,
+    ]];
 }
 
 if ($sort === 'views') {
@@ -151,6 +165,10 @@ if ($sort === 'views') {
 
 $q = new WP_Query($args);
 $cats = get_categories(['hide_empty'=>true]);
+
+echo "<head>";
+echo '<link rel="canonical" href="'.url(current_params()).'">';
+echo "</head>";
 
 echo "<h2>Film</h2>";
 
@@ -169,7 +187,7 @@ foreach ($cats as $c) {
 echo "</select><br><br>";
 
 // =====================
-// GENRE CHECKBOX + COUNT DINAMIS
+// GENRE + COUNT DINAMIS
 // =====================
 $all_genres = get_terms(['taxonomy'=>'category','hide_empty'=>true]);
 
@@ -204,7 +222,7 @@ foreach ($all_genres as $g) {
 
     $count_query = new WP_Query($count_args);
     $count = $count_query->found_posts;
-    wp_reset_postdata(); // 🔥 penting
+    wp_reset_postdata();
 
     $checked = in_array($g->slug,$selected)?'checked':'';
 
@@ -249,7 +267,7 @@ while ($q->have_posts()) {
 wp_reset_postdata();
 
 // =====================
-// PAGINATION (FIXED)
+// PAGINATION
 // =====================
 $total = max(1,(int)$q->max_num_pages);
 
