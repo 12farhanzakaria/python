@@ -41,6 +41,16 @@ function url($params = []) {
     return '?' . http_build_query($params);
 }
 
+function current_params() {
+    return [
+        'category' => $_GET['category'] ?? '',
+        'search'   => $_GET['search'] ?? '',
+        'year'     => $_GET['year'] ?? '',
+        'sort'     => $_GET['sort'] ?? '',
+        'genre'    => $_GET['genre'] ?? [],
+    ];
+}
+
 // =====================
 // DETAIL
 // =====================
@@ -53,7 +63,6 @@ if ($id) {
     $thumb = get_the_post_thumbnail_url($post, 'full');
     $meta  = get_post_meta($post->ID);
 
-    // views
     $views = 0;
     foreach (['post_views_count','views','view_count','idmuv_views'] as $k) {
         if (!empty($meta[$k][0])) {
@@ -62,14 +71,12 @@ if ($id) {
         }
     }
 
-    // META BERSIH
     $clean = [];
     foreach ($meta as $k => $v) {
         if ($k[0] === '_') continue;
         $clean[$k] = maybe_unserialize($v[0]);
     }
 
-    // TAXONOMY
     $tax = [];
     foreach (get_object_taxonomies($post->post_type) as $t) {
         $terms = get_the_terms($post->ID, $t);
@@ -79,68 +86,67 @@ if ($id) {
     }
 
     echo "<h1>$title</h1>";
-
-    if ($thumb) {
-        echo "<img src='$thumb'><br><br>";
-    }
+    if ($thumb) echo "<img src='$thumb'><br><br>";
 
     echo "Views: $views<br>";
-    echo "Tanggal: {$post->post_date}<br><br>";
+    echo "Tanggal: {$post->post_date}<br><br><hr>";
 
-    echo "<hr>";
-
-    // tampil meta
     foreach ($clean as $k => $v) {
-        echo "<div><b>$k:</b> ";
-        echo is_array($v) ? implode(', ', $v) : $v;
-        echo "</div>";
+        echo "<div><b>$k:</b> ".(is_array($v)?implode(', ',$v):$v)."</div>";
     }
 
     echo "<hr>";
 
-    // tampil taxonomy
     foreach ($tax as $k => $v) {
-        echo "<div><b>$k:</b> " . implode(', ', $v) . "</div>";
+        echo "<div><b>$k:</b> ".implode(', ',$v)."</div>";
     }
 
-    echo "<br><br>";
-    echo "<a href='".url(current_params())."'>Kembali</a>";
-
+    echo "<br><a href='".url(current_params())."'>Kembali</a>";
     exit;
 }
 
 // =====================
-// QUERY
+// MAIN QUERY (FIXED)
 // =====================
 $args = [
     'post_type' => ['post','tv'],
     'posts_per_page' => 20,
     'paged' => $page,
+    'no_found_rows' => false,
+    'ignore_sticky_posts' => true,
+    'post_status' => 'publish',
 ];
 
+// filters
 if ($search) $args['s'] = $search;
 if ($category) $args['cat'] = $category;
 
 if ($genre) {
-    $args['tax_query'][] = [
-        'taxonomy' => 'category',
-        'field' => 'slug',
-        'terms' => $genre,
+    $args['tax_query'] = [
+        [
+            'taxonomy' => 'category',
+            'field' => 'slug',
+            'terms' => $genre,
+        ]
     ];
 }
 
 if ($year) {
-    $args['meta_query'][] = [
-        'key' => 'year',
-        'value' => $year,
+    $args['meta_query'] = [
+        [
+            'key' => 'year',
+            'value' => $year,
+        ]
     ];
 }
 
 if ($sort === 'views') {
     $args['meta_key'] = 'views';
     $args['orderby'] = 'meta_value_num';
+    $args['order'] = 'DESC';
 } else {
     $args['orderby'] = 'date';
+    $args['order'] = 'DESC';
 }
 
 $q = new WP_Query($args);
@@ -152,7 +158,6 @@ echo "<h2>Film</h2>";
 // FORM
 // =====================
 echo "<form method='get'>";
-
 echo "Search: <input name='search' value='".htmlspecialchars($search)."'> ";
 
 echo "Category: <select name='category'>";
@@ -164,7 +169,7 @@ foreach ($cats as $c) {
 echo "</select><br><br>";
 
 // =====================
-// CHECKBOX GENRE + COUNT DINAMIS
+// GENRE CHECKBOX + COUNT DINAMIS
 // =====================
 $all_genres = get_terms(['taxonomy'=>'category','hide_empty'=>true]);
 
@@ -199,6 +204,7 @@ foreach ($all_genres as $g) {
 
     $count_query = new WP_Query($count_args);
     $count = $count_query->found_posts;
+    wp_reset_postdata(); // 🔥 penting
 
     $checked = in_array($g->slug,$selected)?'checked':'';
 
@@ -219,7 +225,6 @@ echo "Sort: <select name='sort'>
 
 echo "<input type='hidden' name='_' value='$cache'>";
 echo "<button>Filter</button>";
-
 echo "</form><br>";
 
 // =====================
@@ -233,7 +238,7 @@ while ($q->have_posts()) {
     $thumb = get_the_post_thumbnail_url($post_id,'thumbnail');
 
     echo "<div>";
-    echo "<a href='".url(['id'=>$post_id])."'>";
+    echo "<a href='".url(current_params()+['id'=>$post_id])."'>";
 
     if ($thumb) echo "<img src='$thumb'><br>";
 
@@ -244,24 +249,39 @@ while ($q->have_posts()) {
 wp_reset_postdata();
 
 // =====================
-// PAGINATION
+// PAGINATION (FIXED)
 // =====================
-if ($q->max_num_pages>1){
+$total = max(1,(int)$q->max_num_pages);
 
-    $total=$q->max_num_pages;
+if ($total > 1) {
 
     echo "<div>";
 
-    if ($page>1){
-        echo "<a href='".url(['page'=>$page-1])."'>Prev</a> ";
+    if ($page > 1) {
+        echo "<a href='".url(current_params()+['page'=>$page-1])."'>Prev</a> ";
     }
 
-    for($i=max(1,$page-2);$i<=min($total,$page+2);$i++){
-        echo $i==$page?"<b>$i</b> ":"<a href='".url(['page'=>$i])."'>$i</a> ";
+    $start = max(1, $page-2);
+    $end   = min($total, $page+2);
+
+    if ($start > 1) {
+        echo "<a href='".url(current_params()+['page'=>1])."'>1</a> ... ";
     }
 
-    if ($page<$total){
-        echo "<a href='".url(['page'=>$page+1])."'>Next</a>";
+    for ($i=$start;$i<=$end;$i++){
+        if ($i==$page){
+            echo "<b>$i</b> ";
+        } else {
+            echo "<a href='".url(current_params()+['page'=>$i])."'>$i</a> ";
+        }
+    }
+
+    if ($end < $total) {
+        echo "... <a href='".url(current_params()+['page'=>$total])."'>$total</a> ";
+    }
+
+    if ($page < $total) {
+        echo "<a href='".url(current_params()+['page'=>$page+1])."'>Next</a>";
     }
 
     echo "</div>";
