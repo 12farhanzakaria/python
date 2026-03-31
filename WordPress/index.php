@@ -8,6 +8,7 @@ $prefix = "drama_";
 // =====================
 // PARAM
 // =====================
+$id       = (int)($_GET['id'] ?? 0);
 $page     = max(1,(int)($_GET['page'] ?? 1));
 $search   = $conn->real_escape_string($_GET['search'] ?? '');
 $category = (int)($_GET['category'] ?? 0);
@@ -21,7 +22,81 @@ $limit  = 20;
 $offset = ($page-1)*$limit;
 
 // =====================
-// BASE QUERY
+// DETAIL MODE
+// =====================
+if ($id) {
+
+$sql = "
+SELECT 
+    p.ID,
+    p.post_title,
+    p.post_content,
+    p.post_date,
+    img.guid AS thumbnail,
+    GROUP_CONCAT(DISTINCT t.name) AS genres,
+    MAX(CASE WHEN pm.meta_key='views' THEN pm.meta_value END) AS views,
+    MAX(CASE WHEN pm.meta_key='year' THEN pm.meta_value END) AS year
+
+FROM {$prefix}posts p
+
+LEFT JOIN {$prefix}postmeta thumb 
+    ON p.ID = thumb.post_id AND thumb.meta_key='_thumbnail_id'
+
+LEFT JOIN {$prefix}posts img 
+    ON img.ID = thumb.meta_value
+
+LEFT JOIN {$prefix}term_relationships tr 
+    ON p.ID = tr.object_id
+
+LEFT JOIN {$prefix}term_taxonomy tt 
+    ON tr.term_taxonomy_id = tt.term_taxonomy_id
+
+LEFT JOIN {$prefix}terms t 
+    ON tt.term_id = t.term_id
+
+LEFT JOIN {$prefix}postmeta pm 
+    ON p.ID = pm.post_id
+
+WHERE p.ID = $id
+GROUP BY p.ID
+";
+
+$res = $conn->query($sql);
+if (!$res) die("DETAIL ERROR: ".$conn->error);
+
+$row = $res->fetch_assoc();
+
+// OUTPUT
+echo "<h1>{$row['post_title']}</h1>";
+
+if (!empty($row['thumbnail'])) {
+    echo "<img src='{$row['thumbnail']}'><br><br>";
+}
+
+echo "Tanggal: {$row['post_date']}<br>";
+
+if (!empty($row['year'])) {
+    echo "Year: {$row['year']}<br>";
+}
+
+if (!empty($row['views'])) {
+    echo "Views: {$row['views']}<br>";
+}
+
+if (!empty($row['genres'])) {
+    echo "Genre: {$row['genres']}<br>";
+}
+
+echo "<br>";
+echo $row['post_content'];
+
+echo "<br><br><a href='?'>Kembali</a>";
+
+exit;
+}
+
+// =====================
+// LIST FILTER QUERY
 // =====================
 $where = "WHERE p.post_status='publish' AND p.post_type IN ('post','tv')";
 $join  = "";
@@ -70,7 +145,7 @@ if ($sort==='views') {
 }
 
 // =====================
-// COUNT (OPTIMIZED)
+// COUNT
 // =====================
 $total = $conn->query("
 SELECT COUNT(DISTINCT p.ID) as total
@@ -82,7 +157,7 @@ $where
 $total_pages = max(1,ceil($total/$limit));
 
 // =====================
-// LIST ID ONLY (FAST)
+// LIST ID ONLY
 // =====================
 $res = $conn->query("
 SELECT DISTINCT p.ID
@@ -106,7 +181,7 @@ if(!$ids){
 $id_list = implode(',',$ids);
 
 // =====================
-// DATA LENGKAP (1 QUERY)
+// DATA LENGKAP (BATCH)
 // =====================
 $data = $conn->query("
 SELECT 
@@ -139,9 +214,6 @@ WHERE p.ID IN ($id_list)
 GROUP BY p.ID
 ");
 
-// =====================
-// OUTPUT
-// =====================
 echo "<h2>Film</h2>";
 
 echo "Total: $total<br>";
