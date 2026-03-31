@@ -1,7 +1,4 @@
 <?php
-// =====================
-// LOAD WP
-// =====================
 define('WP_USE_THEMES', false);
 require_once __DIR__ . '/../wp-load.php';
 
@@ -9,50 +6,30 @@ remove_action('template_redirect', 'redirect_canonical');
 add_filter('redirect_canonical', '__return_false');
 
 // =====================
-// VALIDASI PARAM
+// PARAM
 // =====================
-$id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
-$category = isset($_GET['category']) ? (int)$_GET['category'] : 0;
-$page = max(1, (int)($_GET['page'] ?? 1));
-
-$search = isset($_GET['search']) ? sanitize_text_field($_GET['search']) : '';
-$year = isset($_GET['year']) ? preg_replace('/[^0-9]/', '', $_GET['year']) : '';
-
-$allowed_sort = ['latest','views'];
-$sort = in_array($_GET['sort'] ?? '', $allowed_sort) ? $_GET['sort'] : 'latest';
+$id       = (int)($_GET['id'] ?? 0);
+$category = (int)($_GET['category'] ?? 0);
+$page     = max(1, (int)($_GET['page'] ?? 1));
+$search   = sanitize_text_field($_GET['search'] ?? '');
+$year     = preg_replace('/[^0-9]/', '', $_GET['year'] ?? '');
+$sort     = in_array($_GET['sort'] ?? '', ['latest','views']) ? $_GET['sort'] : 'latest';
 
 $genre = $_GET['genre'] ?? [];
 if (!is_array($genre)) $genre = [];
 $genre = array_map('sanitize_title', $genre);
 
 // =====================
-// NORMALISASI URL
+// CONFIG
 // =====================
-$params = [];
-
-if ($category) $params['category'] = $category;
-if ($search) $params['search'] = $search;
-if ($year) $params['year'] = $year;
-if ($sort !== 'latest') $params['sort'] = $sort;
-if ($genre) $params['genre'] = $genre;
-if ($page > 1) $params['page'] = $page;
-
-$params['_'] = floor(time()/60);
-
-if ($_GET != $params) {
-    header("Location: ?" . http_build_query($params));
-    exit;
-}
-
-$cache = $params['_'];
+$per_page = 20;
+$offset   = ($page - 1) * $per_page;
 
 // =====================
 // URL BUILDER
 // =====================
-function url($p = []) {
-    global $cache;
-    $p['_'] = $cache;
-    return '?' . http_build_query($p);
+function url($params = []) {
+    return '?' . http_build_query($params);
 }
 
 function current_params() {
@@ -77,83 +54,61 @@ if ($id) {
 
     $title = get_the_title($post);
     $thumb = get_the_post_thumbnail_url($post, 'full');
-    $meta  = get_post_meta($post->ID);
-
-    $views = 0;
-    foreach (['post_views_count','views','view_count','idmuv_views'] as $k) {
-        if (!empty($meta[$k][0])) {
-            $views = (int)$meta[$k][0];
-            break;
-        }
-    }
-
-    $clean = [];
-    foreach ($meta as $k => $v) {
-        if ($k[0] === '_') continue;
-        $clean[$k] = maybe_unserialize($v[0]);
-    }
-
-    $tax = [];
-    foreach (get_object_taxonomies($post->post_type) as $t) {
-        $terms = get_the_terms($post->ID, $t);
-        if (!empty($terms) && !is_wp_error($terms)) {
-            $tax[$t] = array_column($terms, 'name');
-        }
-    }
-
-    echo "<head>";
-    echo '<link rel="canonical" href="'.url(current_params()).'">';
-    echo "</head>";
 
     echo "<h1>$title</h1>";
     if ($thumb) echo "<img src='$thumb'><br><br>";
 
-    echo "Views: $views<br>";
-    echo "Tanggal: {$post->post_date}<br><br><hr>";
+    echo "<a href='".url(current_params())."'>Kembali</a>";
 
-    foreach ($clean as $k => $v) {
-        echo "<div><b>$k:</b> ".(is_array($v)?implode(', ',$v):$v)."</div>";
-    }
-
-    echo "<hr>";
-
-    foreach ($tax as $k => $v) {
-        echo "<div><b>$k:</b> ".implode(', ',$v)."</div>";
-    }
-
-    echo "<br><a href='".url(current_params())."'>Kembali</a>";
+    echo inject_js(); // inject JS tetap jalan di detail
     exit;
 }
 
 // =====================
-// MAIN QUERY
+// BASE QUERY
 // =====================
 $args = [
     'post_type' => ['post','tv'],
-    'posts_per_page' => 20,
-    'paged' => $page,
-    'no_found_rows' => false,
+    'posts_per_page' => $per_page,
+    'offset' => $offset,
     'ignore_sticky_posts' => true,
+    'post_status' => 'publish',
 ];
 
+// FILTER
 if ($search) $args['s'] = $search;
-if ($category) $args['cat'] = $category;
+
+$tax_query = [];
+
+if ($category) {
+    $tax_query[] = [
+        'taxonomy' => 'category',
+        'field' => 'term_id',
+        'terms' => [$category],
+    ];
+}
 
 if ($genre) {
-    $args['tax_query'] = [[
+    $tax_query[] = [
         'taxonomy' => 'category',
         'field' => 'slug',
         'terms' => $genre,
-    ]];
+    ];
+}
+
+if ($tax_query) {
+    $tax_query['relation'] = 'AND';
+    $args['tax_query'] = $tax_query;
 }
 
 if ($year) {
-    $args['meta_query'] = [[
+    $args['meta_query'][] = [
         'key' => 'year',
         'value' => $year,
-    ]];
+    ];
 }
 
+// SORT
 if ($sort === 'views') {
     $args['meta_key'] = 'views';
     $args['orderby'] = 'meta_value_num';
@@ -163,87 +118,31 @@ if ($sort === 'views') {
     $args['order'] = 'DESC';
 }
 
+// =====================
+// MAIN QUERY
+// =====================
 $q = new WP_Query($args);
-$cats = get_categories(['hide_empty'=>true]);
 
-echo "<head>";
-echo '<link rel="canonical" href="'.url(current_params()).'">';
-echo "</head>";
+// =====================
+// COUNT QUERY (AKURAT)
+// =====================
+$count_args = $args;
+$count_args['posts_per_page'] = 1;
+$count_args['offset'] = 0;
+$count_args['no_found_rows'] = false;
 
+$count_query = new WP_Query($count_args);
+
+$total_posts = $count_query->found_posts;
+$total_pages = max(1, ceil($total_posts / $per_page));
+
+// =====================
+// OUTPUT
+// =====================
 echo "<h2>Film</h2>";
 
-// =====================
-// FORM
-// =====================
-echo "<form method='get'>";
-echo "Search: <input name='search' value='".htmlspecialchars($search)."'> ";
-
-echo "Category: <select name='category'>";
-echo "<option value=''>All</option>";
-foreach ($cats as $c) {
-    $sel = $category==$c->term_id?'selected':'';
-    echo "<option value='{$c->term_id}' $sel>{$c->name}</option>";
-}
-echo "</select><br><br>";
-
-// =====================
-// GENRE + COUNT DINAMIS
-// =====================
-$all_genres = get_terms(['taxonomy'=>'category','hide_empty'=>true]);
-
-echo "Genre:<br>";
-
-foreach ($all_genres as $g) {
-
-    $count_args = [
-        'post_type'=>['post','tv'],
-        'posts_per_page'=>1,
-        'fields'=>'ids'
-    ];
-
-    if ($search) $count_args['s']=$search;
-    if ($category) $count_args['cat']=$category;
-
-    if ($year) {
-        $count_args['meta_query'][] = [
-            'key'=>'year',
-            'value'=>$year
-        ];
-    }
-
-    $selected = (array)$genre;
-    $terms = array_unique(array_merge($selected, [$g->slug]));
-
-    $count_args['tax_query'][] = [
-        'taxonomy'=>'category',
-        'field'=>'slug',
-        'terms'=>$terms
-    ];
-
-    $count_query = new WP_Query($count_args);
-    $count = $count_query->found_posts;
-    wp_reset_postdata();
-
-    $checked = in_array($g->slug,$selected)?'checked':'';
-
-    echo "<label>";
-    echo "<input type='checkbox' name='genre[]' value='{$g->slug}' $checked> ";
-    echo "{$g->name} ($count)";
-    echo "</label><br>";
-}
-
-echo "<br>";
-
-echo "Year: <input name='year' value='$year'> ";
-
-echo "Sort: <select name='sort'>
-<option value='latest'>Latest</option>
-<option value='views' ".($sort=='views'?'selected':'').">Views</option>
-</select> ";
-
-echo "<input type='hidden' name='_' value='$cache'>";
-echo "<button>Filter</button>";
-echo "</form><br>";
+echo "Total: $total_posts<br>";
+echo "Page: $page / $total_pages<br><br>";
 
 // =====================
 // LIST
@@ -253,7 +152,7 @@ while ($q->have_posts()) {
 
     $post_id = get_the_ID();
     $title = get_the_title();
-    $thumb = get_the_post_thumbnail_url($post_id,'thumbnail');
+    $thumb = get_the_post_thumbnail_url($post_id, 'thumbnail');
 
     echo "<div>";
     echo "<a href='".url(current_params()+['id'=>$post_id])."'>";
@@ -269,9 +168,7 @@ wp_reset_postdata();
 // =====================
 // PAGINATION
 // =====================
-$total = max(1,(int)$q->max_num_pages);
-
-if ($total > 1) {
+if ($total_pages > 1) {
 
     echo "<div>";
 
@@ -279,28 +176,63 @@ if ($total > 1) {
         echo "<a href='".url(current_params()+['page'=>$page-1])."'>Prev</a> ";
     }
 
-    $start = max(1, $page-2);
-    $end   = min($total, $page+2);
-
-    if ($start > 1) {
-        echo "<a href='".url(current_params()+['page'=>1])."'>1</a> ... ";
-    }
-
-    for ($i=$start;$i<=$end;$i++){
-        if ($i==$page){
+    for ($i = max(1, $page-2); $i <= min($total_pages, $page+2); $i++) {
+        if ($i == $page) {
             echo "<b>$i</b> ";
         } else {
             echo "<a href='".url(current_params()+['page'=>$i])."'>$i</a> ";
         }
     }
 
-    if ($end < $total) {
-        echo "... <a href='".url(current_params()+['page'=>$total])."'>$total</a> ";
-    }
-
-    if ($page < $total) {
+    if ($page < $total_pages) {
         echo "<a href='".url(current_params()+['page'=>$page+1])."'>Next</a>";
     }
 
     echo "</div>";
 }
+
+// =====================
+// JS CACHE BYPASS (AUTO INJECT)
+// =====================
+function inject_js() {
+return <<<HTML
+<script>
+(function(){
+
+    // ganti tiap 60 detik (stabil)
+    const cacheKey = Math.floor(Date.now() / 60000);
+
+    // update semua link
+    document.querySelectorAll('a[href]').forEach(link => {
+        try {
+            const url = new URL(link.href, window.location.origin);
+
+            if (url.protocol.startsWith('javascript')) return;
+
+            url.searchParams.delete('_t');
+            url.searchParams.set('_t', cacheKey);
+
+            link.href = url.pathname + url.search;
+        } catch(e){}
+    });
+
+    // update form
+    document.querySelectorAll('form').forEach(form => {
+        form.addEventListener('submit', function(){
+            let input = form.querySelector('input[name="_t"]');
+            if (!input) {
+                input = document.createElement('input');
+                input.type = 'hidden';
+                input.name = '_t';
+                form.appendChild(input);
+            }
+            input.value = cacheKey;
+        });
+    });
+
+})();
+</script>
+HTML;
+}
+
+echo inject_js();
