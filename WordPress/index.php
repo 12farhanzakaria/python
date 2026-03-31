@@ -38,6 +38,32 @@ if ($id) {
 
     $title = get_the_title($post);
     $thumb = get_the_post_thumbnail_url($post, 'full');
+    $meta = get_post_meta($post->ID);
+
+    // views
+    $views = 0;
+    foreach (['post_views_count','views','view_count','idmuv_views'] as $k) {
+        if (!empty($meta[$k][0])) {
+            $views = (int)$meta[$k][0];
+            break;
+        }
+    }
+
+    // meta bersih
+    $clean = [];
+    foreach ($meta as $k => $v) {
+        if ($k[0] === '_') continue;
+        $clean[$k] = maybe_unserialize($v[0]);
+    }
+
+    // taxonomy
+    $tax = [];
+    foreach (get_object_taxonomies($post->post_type) as $t) {
+        $terms = get_the_terms($post->ID, $t);
+        if (!empty($terms) && !is_wp_error($terms)) {
+            $tax[$t] = array_column($terms, 'name');
+        }
+    }
 
     echo "<h1>$title</h1>";
 
@@ -45,7 +71,28 @@ if ($id) {
         echo "<img src='$thumb'><br><br>";
     }
 
+    echo "Views: $views<br>";
+    echo "Tanggal: {$post->post_date}<br><br>";
+
+    echo "<hr>";
+
+    // meta
+    foreach ($clean as $k => $v) {
+        echo "<div><b>$k:</b> ";
+        echo is_array($v) ? implode(', ', $v) : $v;
+        echo "</div>";
+    }
+
+    echo "<hr>";
+
+    // taxonomy
+    foreach ($tax as $k => $v) {
+        echo "<div><b>$k:</b> " . implode(', ', $v) . "</div>";
+    }
+
+    echo "<br><br>";
     echo "<a href='?_= $cache'>Kembali</a>";
+
     exit;
 }
 
@@ -80,13 +127,13 @@ echo "</div><br>";
 while ($q->have_posts()) {
     $q->the_post();
 
-    $id = get_the_ID();
+    $post_id = get_the_ID(); // FIX BUG
     $title = get_the_title();
-    $thumb = get_the_post_thumbnail_url($id, 'thumbnail');
+    $thumb = get_the_post_thumbnail_url($post_id, 'thumbnail');
 
     echo "<div>";
-    echo "<a href='?id=$id&_=$cache'>";
-    
+    echo "<a href='?id=$post_id&_=$cache'>";
+
     if ($thumb) {
         echo "<img src='$thumb'><br>";
     }
