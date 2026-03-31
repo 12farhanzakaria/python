@@ -1,169 +1,155 @@
 <?php
-define('WP_USE_THEMES', false);
-require_once __DIR__ . '/../wp-load.php';
 
-remove_action('template_redirect', 'redirect_canonical');
-add_filter('redirect_canonical', '__return_false');
+$conn = new mysqli("localhost", "juraganfilm", "Paddy-041200", "juragan");
+if ($conn->connect_error) die("DB Error");
 
 // =====================
 // PARAM
 // =====================
 $id       = (int)($_GET['id'] ?? 0);
-$category = (int)($_GET['category'] ?? 0);
 $page     = max(1, (int)($_GET['page'] ?? 1));
-$search   = sanitize_text_field($_GET['search'] ?? '');
+$search   = $conn->real_escape_string($_GET['search'] ?? '');
+$category = (int)($_GET['category'] ?? 0);
 $year     = preg_replace('/[^0-9]/', '', $_GET['year'] ?? '');
-$sort     = in_array($_GET['sort'] ?? '', ['latest','views']) ? $_GET['sort'] : 'latest';
+$sort     = $_GET['sort'] ?? 'latest';
 
 $genre = $_GET['genre'] ?? [];
 if (!is_array($genre)) $genre = [];
-$genre = array_map('sanitize_title', $genre);
 
 // =====================
 // CONFIG
 // =====================
-$per_page = 20;
-$offset   = ($page - 1) * $per_page;
-
-// =====================
-// URL BUILDER
-// =====================
-function url($params = []) {
-    return '?' . http_build_query($params);
-}
-
-function current_params() {
-    $p = [];
-
-    if (!empty($_GET['category'])) $p['category'] = (int)$_GET['category'];
-    if (!empty($_GET['search'])) $p['search'] = $_GET['search'];
-    if (!empty($_GET['year'])) $p['year'] = $_GET['year'];
-    if (!empty($_GET['sort']) && $_GET['sort'] !== 'latest') $p['sort'] = $_GET['sort'];
-    if (!empty($_GET['genre'])) $p['genre'] = $_GET['genre'];
-
-    return $p;
-}
+$limit  = 20;
+$offset = ($page - 1) * $limit;
 
 // =====================
 // DETAIL
 // =====================
 if ($id) {
 
-    $post = get_post($id);
-    if (!$post) exit('Not found');
+    $q = $conn->query("SELECT post_title, post_date FROM wp_posts WHERE ID=$id");
 
-    $title = get_the_title($post);
-    $thumb = get_the_post_thumbnail_url($post, 'full');
+    if ($row = $q->fetch_assoc()) {
+        echo "<h1>{$row['post_title']}</h1>";
+        echo "Tanggal: {$row['post_date']}<br><br>";
+    }
 
-    echo "<h1>$title</h1>";
-    if ($thumb) echo "<img src='$thumb'><br><br>";
-
-    echo "<a href='".url(current_params())."'>Kembali</a>";
-
-    echo inject_js(); // inject JS tetap jalan di detail
+    echo "<a href='?'>Kembali</a>";
     exit;
 }
 
 // =====================
 // BASE QUERY
 // =====================
-$args = [
-    'post_type' => ['post','tv'],
-    'posts_per_page' => $per_page,
-    'offset' => $offset,
-    'ignore_sticky_posts' => true,
-    'post_status' => 'publish',
-];
+$where = "WHERE p.post_status='publish' AND p.post_type IN ('post','tv')";
 
-// FILTER
-if ($search) $args['s'] = $search;
+// search
+if ($search) {
+    $where .= " AND p.post_title LIKE '%$search%'";
+}
 
-$tax_query = [];
+// =====================
+// JOIN (CATEGORY / GENRE)
+// =====================
+$join = "";
 
+// category filter
 if ($category) {
-    $tax_query[] = [
-        'taxonomy' => 'category',
-        'field' => 'term_id',
-        'terms' => [$category],
-    ];
+    $join .= "
+    JOIN wp_term_relationships tr ON p.ID = tr.object_id
+    JOIN wp_term_taxonomy tt ON tr.term_taxonomy_id = tt.term_taxonomy_id
+    ";
+    $where .= " AND tt.term_id = $category";
 }
 
+// genre filter (multi)
 if ($genre) {
-    $tax_query[] = [
-        'taxonomy' => 'category',
-        'field' => 'slug',
-        'terms' => $genre,
-    ];
+
+    $genre_ids = [];
+
+    foreach ($genre as $g) {
+        $g = $conn->real_escape_string($g);
+
+        $res = $conn->query("SELECT term_id FROM wp_terms WHERE slug='$g'");
+        if ($r = $res->fetch_assoc()) {
+            $genre_ids[] = $r['term_id'];
+        }
+    }
+
+    if ($genre_ids) {
+        $ids = implode(',', $genre_ids);
+
+        $join .= "
+        JOIN wp_term_relationships tr2 ON p.ID = tr2.object_id
+        JOIN wp_term_taxonomy tt2 ON tr2.term_taxonomy_id = tt2.term_taxonomy_id
+        ";
+
+        $where .= " AND tt2.term_id IN ($ids)";
+    }
 }
 
-if ($tax_query) {
-    $tax_query['relation'] = 'AND';
-    $args['tax_query'] = $tax_query;
-}
-
+// =====================
+// YEAR (META)
+// =====================
 if ($year) {
-    $args['meta_query'][] = [
-        'key' => 'year',
-        'value' => $year,
-    ];
+    $join .= "
+    JOIN wp_postmeta pm ON p.ID = pm.post_id
+    ";
+    $where .= " AND pm.meta_key='year' AND pm.meta_value='$year'";
 }
 
+// =====================
 // SORT
+// =====================
+$order = "ORDER BY p.post_date DESC";
+
 if ($sort === 'views') {
-    $args['meta_key'] = 'views';
-    $args['orderby'] = 'meta_value_num';
-    $args['order'] = 'DESC';
-} else {
-    $args['orderby'] = 'date';
-    $args['order'] = 'DESC';
+    $join .= "
+    LEFT JOIN wp_postmeta pmv ON p.ID = pmv.post_id AND pmv.meta_key='views'
+    ";
+    $order = "ORDER BY CAST(pmv.meta_value AS UNSIGNED) DESC";
 }
 
 // =====================
-// MAIN QUERY
+// TOTAL COUNT
 // =====================
-$q = new WP_Query($args);
+$total = $conn->query("
+    SELECT COUNT(DISTINCT p.ID) as total
+    FROM wp_posts p
+    $join
+    $where
+")->fetch_assoc()['total'];
+
+$total_pages = max(1, ceil($total / $limit));
 
 // =====================
-// COUNT QUERY (AKURAT)
+// DATA QUERY
 // =====================
-$count_args = $args;
-$count_args['posts_per_page'] = 1;
-$count_args['offset'] = 0;
-$count_args['no_found_rows'] = false;
-
-$count_query = new WP_Query($count_args);
-
-$total_posts = $count_query->found_posts;
-$total_pages = max(1, ceil($total_posts / $per_page));
+$result = $conn->query("
+    SELECT DISTINCT p.ID, p.post_title
+    FROM wp_posts p
+    $join
+    $where
+    $order
+    LIMIT $limit OFFSET $offset
+");
 
 // =====================
 // OUTPUT
 // =====================
 echo "<h2>Film</h2>";
 
-echo "Total: $total_posts<br>";
+echo "Total: $total<br>";
 echo "Page: $page / $total_pages<br><br>";
 
-// =====================
-// LIST
-// =====================
-while ($q->have_posts()) {
-    $q->the_post();
-
-    $post_id = get_the_ID();
-    $title = get_the_title();
-    $thumb = get_the_post_thumbnail_url($post_id, 'thumbnail');
+while ($row = $result->fetch_assoc()) {
 
     echo "<div>";
-    echo "<a href='".url(current_params()+['id'=>$post_id])."'>";
-
-    if ($thumb) echo "<img src='$thumb'><br>";
-
-    echo "$title</a>";
+    echo "<a href='?id={$row['ID']}'>";
+    echo $row['post_title'];
+    echo "</a>";
     echo "</div><br>";
 }
-
-wp_reset_postdata();
 
 // =====================
 // PAGINATION
@@ -173,66 +159,20 @@ if ($total_pages > 1) {
     echo "<div>";
 
     if ($page > 1) {
-        echo "<a href='".url(current_params()+['page'=>$page-1])."'>Prev</a> ";
+        echo "<a href='?page=".($page-1)."'>Prev</a> ";
     }
 
     for ($i = max(1, $page-2); $i <= min($total_pages, $page+2); $i++) {
         if ($i == $page) {
             echo "<b>$i</b> ";
         } else {
-            echo "<a href='".url(current_params()+['page'=>$i])."'>$i</a> ";
+            echo "<a href='?page=$i'>$i</a> ";
         }
     }
 
     if ($page < $total_pages) {
-        echo "<a href='".url(current_params()+['page'=>$page+1])."'>Next</a>";
+        echo "<a href='?page=".($page+1)."'>Next</a>";
     }
 
     echo "</div>";
 }
-
-// =====================
-// JS CACHE BYPASS (AUTO INJECT)
-// =====================
-function inject_js() {
-return <<<HTML
-<script>
-(function(){
-
-    // ganti tiap 60 detik (stabil)
-    const cacheKey = Math.floor(Date.now() / 60000);
-
-    // update semua link
-    document.querySelectorAll('a[href]').forEach(link => {
-        try {
-            const url = new URL(link.href, window.location.origin);
-
-            if (url.protocol.startsWith('javascript')) return;
-
-            url.searchParams.delete('_t');
-            url.searchParams.set('_t', cacheKey);
-
-            link.href = url.pathname + url.search;
-        } catch(e){}
-    });
-
-    // update form
-    document.querySelectorAll('form').forEach(form => {
-        form.addEventListener('submit', function(){
-            let input = form.querySelector('input[name="_t"]');
-            if (!input) {
-                input = document.createElement('input');
-                input.type = 'hidden';
-                input.name = '_t';
-                form.appendChild(input);
-            }
-            input.value = cacheKey;
-        });
-    });
-
-})();
-</script>
-HTML;
-}
-
-echo inject_js();
