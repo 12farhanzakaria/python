@@ -40,14 +40,7 @@ if ($id) {
 
     $post = get_post($id);
     if (!$post) exit('Not found');
-// =====================
-// DEBUG CONTENT (RAW)
-// =====================
-echo "<h3>Raw Content (Debug):</h3>";
 
-echo "<pre style='background:#111;color:#0f0;padding:10px;font-size:12px;overflow:auto;'>";
-echo esc_html($post->post_content);
-echo "</pre>";
     $thumb = get_the_post_thumbnail_url($id, 'full');
 
     // META
@@ -74,48 +67,66 @@ echo "</pre>";
 
     echo "<h1>".esc_html($post->post_title)."</h1>";
 
-    if ($thumb) echo "<img src='".esc_url($thumb)."'><br><br>";
+    if ($thumb) echo "<img src='".esc_url($thumb)."' width='200'><br><br>";
 
-    // INFO UTAMA
-    echo "<h3>Informasi:</h3>";
+    // =====================
+    // DRIVE SYSTEM
+    // =====================
+    $drive_links = [];
 
-    $map = [
-        'IDMUVICORE_Title'=>'Judul',
-        'IDMUVICORE_Year'=>'Tahun',
-        'IDMUVICORE_Numbepisode'=>'Total Episode',
-        'episodex'=>'Episode',
-        'IDMUVICORE_tmdbID'=>'TMDB',
-        'views'=>'Views'
-    ];
+    // MOVIE
+    if (!empty($meta['IDMUVICORE_Player1'])) {
+        $drive_links[] = $meta['IDMUVICORE_Player1'];
+    } else {
+        // SERIES
+        preg_match_all('/https?:\/\/[^\s"]*drive\.google\.com[^\s"]*/', $post->post_content, $m);
 
-    foreach ($map as $k=>$label) {
-        if (!empty($meta[$k])) {
-            echo "<div><b>$label:</b> ".esc_html($meta[$k])."</div>";
-            unset($meta[$k]);
+        if (!empty($m[0])) {
+            $drive_links = array_values(array_unique($m[0]));
         }
     }
 
-    // poster
-    if (!empty($meta['IDMUVICORE_Poster'])) {
-        echo "<br><img src='".esc_url($meta['IDMUVICORE_Poster'])."' width='200'><br>";
-        unset($meta['IDMUVICORE_Poster']);
+    // =====================
+    // PLAYER
+    // =====================
+    $first = $drive_links[0] ?? null;
+
+    if ($first && preg_match('/\/d\/(.*?)\//', $first, $match)) {
+
+        $file_id = $match[1];
+
+        echo "<h3>Player</h3>";
+
+        echo "<iframe 
+            src='https://drive.google.com/file/d/$file_id/preview' 
+            width='100%' height='480' 
+            allowfullscreen>
+        </iframe><br><br>";
     }
 
-    // trailer
-    if (!empty($meta['IDMUVICORE_Trailer'])) {
-        $yt = esc_html($meta['IDMUVICORE_Trailer']);
-        echo "<iframe width='300' height='170' src='https://www.youtube.com/embed/$yt' allowfullscreen></iframe><br>";
-        unset($meta['IDMUVICORE_Trailer']);
+    // =====================
+    // LIST LINK (SERIES)
+    // =====================
+    if (count($drive_links) > 1) {
+
+        echo "<h3>Link Lain:</h3>";
+
+        foreach ($drive_links as $i => $link) {
+
+            $num = $i + 1;
+
+            echo "<div>";
+            echo "Episode $num - ";
+            echo "<a href='".esc_url($link)."' target='_blank'>Buka</a>";
+            echo "</div>";
+        }
+
+        echo "<br>";
     }
 
-    // sinopsis
-    if (!empty($meta['data-sinopsis'])) {
-        echo "<h3>Sinopsis:</h3>";
-        echo "<p>".esc_html($meta['data-sinopsis'])."</p>";
-        unset($meta['data-sinopsis']);
-    }
-
-    // TAXONOMY
+    // =====================
+    // INFO
+    // =====================
     echo "<h3>Detail:</h3>";
 
     $tax_map = [
@@ -129,22 +140,16 @@ echo "</pre>";
     foreach ($tax_map as $k=>$label) {
         if (!empty($tax[$k])) {
             echo "<div><b>$label:</b> ".esc_html(implode(', ', $tax[$k]))."</div>";
-            unset($tax[$k]);
         }
     }
 
-    // META SISA
-    echo "<h3>Lainnya:</h3>";
-
-    foreach ($meta as $k=>$v) {
-        if (!$v || $v==='Array') continue;
-        echo "<div><b>".esc_html($k).":</b> ".esc_html($v)."</div>";
+    // SINOPSIS
+    if (!empty($meta['data-sinopsis'])) {
+        echo "<h3>Sinopsis:</h3>";
+        echo "<p>".esc_html($meta['data-sinopsis'])."</p>";
     }
 
-    echo "<h3>Content:</h3>";
-    echo apply_filters('the_content',$post->post_content);
-
-    echo "<br><br><a href='".url(current_params())."'>Kembali</a>";
+    echo "<br><a href='".url(current_params())."'>Kembali</a>";
     exit;
 }
 
@@ -158,13 +163,11 @@ $args = [
     'post_status'=>'publish',
     'ignore_sticky_posts'=>true,
     'no_found_rows'=>false,
-    'update_post_meta_cache'=>false,
-    'update_post_term_cache'=>false,
 ];
 
 if ($search) $args['s']=$search;
 
-// TAX QUERY
+// TAX
 $tax_query = [];
 
 if ($category) {
@@ -198,14 +201,6 @@ if ($tax_query) {
     $args['tax_query'] = $tax_query;
 }
 
-// YEAR
-if ($year) {
-    $args['meta_query'][] = [
-        'key'=>'year',
-        'value'=>$year
-    ];
-}
-
 // SORT
 if ($sort==='views') {
     $args['meta_key']='views';
@@ -214,95 +209,31 @@ if ($sort==='views') {
     $args['orderby']='date';
 }
 
-// RUN
 $q = new WP_Query($args);
-
-$total_posts = $q->found_posts;
-$total_pages = $q->max_num_pages;
 
 // =====================
 // OUTPUT
 // =====================
 echo "<h2>Film</h2>";
 
-// =====================
-// FILTER FORM
-// =====================
-echo "<form method='get' style='padding:10px;border:1px solid #ddd;border-radius:8px;'>";
+// FILTER
+echo "<form method='get'>";
 
-// search
-echo "<div><b>Search</b><br>";
-echo "<input name='search' value='".esc_attr($search)."' style='width:100%;padding:6px;'></div><br>";
+echo "Search: <input name='search' value='".esc_attr($search)."'> ";
 
-// category
 $cats = get_categories(['hide_empty'=>true]);
-echo "<div><b>Category</b><br>";
-echo "<select name='category' style='width:100%;padding:6px;'>";
+echo "<select name='category'>";
 echo "<option value=''>All</option>";
 foreach ($cats as $c) {
     $sel = $category==$c->term_id?'selected':'';
     echo "<option value='{$c->term_id}' $sel>{$c->name}</option>";
 }
-echo "</select></div><br>";
+echo "</select>";
 
-// country
-$country_terms = get_terms([
-    'taxonomy'=>'muvicountry',
-    'hide_empty'=>true,
-    'number'=>5,
-    'orderby'=>'count',
-    'order'=>'DESC'
-]);
-
-if ($country_terms) {
-    echo "<div><b>🌍 Country</b><br>";
-    foreach ($country_terms as $t) {
-        $checked = (isset($_GET['muvicountry']) && in_array($t->slug,(array)$_GET['muvicountry']))?'checked':'';
-        echo "<label><input type='checkbox' name='muvicountry[]' value='".esc_attr($t->slug)."' $checked> ".esc_html($t->name)."</label><br>";
-    }
-    echo "</div><br>";
-}
-
-// network
-$network_terms = get_terms([
-    'taxonomy'=>'muvinetwork',
-    'hide_empty'=>true,
-    'number'=>5,
-    'orderby'=>'count',
-    'order'=>'DESC'
-]);
-
-if ($network_terms) {
-    echo "<div><b>📺 Network</b><br>";
-    foreach ($network_terms as $t) {
-        $checked = (isset($_GET['muvinetwork']) && in_array($t->slug,(array)$_GET['muvinetwork']))?'checked':'';
-        echo "<label><input type='checkbox' name='muvinetwork[]' value='".esc_attr($t->slug)."' $checked> ".esc_html($t->name)."</label><br>";
-    }
-    echo "</div><br>";
-}
-
-// year
-echo "<div><b>Year</b><br>";
-echo "<input name='year' value='".esc_attr($year)."' style='width:100%;padding:6px;'>";
-echo "</div><br>";
-
-// sort
-echo "<div><b>Sort</b><br>";
-echo "<select name='sort' style='width:100%;padding:6px;'>
-<option value='latest'>Latest</option>
-<option value='views' ".($sort=='views'?'selected':'').">Views</option>
-</select>";
-echo "</div><br>";
-
-echo "<button style='width:100%;padding:8px;background:#222;color:#fff;border:0;border-radius:5px;'>Filter</button>";
+echo "<button>Filter</button>";
 echo "</form><br>";
 
-// =====================
 // LIST
-// =====================
-echo "Total: $total_posts<br>";
-echo "Page: $page / $total_pages<br><br>";
-
 while ($q->have_posts()) {
     $q->the_post();
 
@@ -310,32 +241,14 @@ while ($q->have_posts()) {
     $thumb = get_the_post_thumbnail_url($id,'thumbnail');
 
     echo "<div>";
+
     if ($thumb) echo "<img src='".esc_url($thumb)."'><br>";
-    echo "<a href='".url(current_params()+['id'=>$id])."'><b>".esc_html(get_the_title())."</b></a>";
+
+    echo "<a href='".url(current_params()+['id'=>$id])."'>";
+    echo esc_html(get_the_title());
+    echo "</a>";
+
     echo "</div><br>";
 }
 
 wp_reset_postdata();
-
-// =====================
-// PAGINATION
-// =====================
-if ($total_pages > 1) {
-    echo "<div>";
-
-    if ($page > 1) {
-        echo "<a href='".url(current_params()+['page'=>$page-1])."'>Prev</a> ";
-    }
-
-    for ($i=max(1,$page-2); $i<=min($total_pages,$page+2); $i++) {
-        echo $i==$page
-            ? "<b>$i</b> "
-            : "<a href='".url(current_params()+['page'=>$i])."'>$i</a> ";
-    }
-
-    if ($page < $total_pages) {
-        echo "<a href='".url(current_params()+['page'=>$page+1])."'>Next</a>";
-    }
-
-    echo "</div>";
-}
