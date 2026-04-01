@@ -15,9 +15,6 @@ $search   = sanitize_text_field($_GET['search'] ?? '');
 $year     = preg_replace('/[^0-9]/', '', $_GET['year'] ?? '');
 $sort     = in_array($_GET['sort'] ?? '', ['latest','views']) ? $_GET['sort'] : 'latest';
 
-// =====================
-// CONFIG
-// =====================
 $per_page = 20;
 
 // =====================
@@ -29,17 +26,15 @@ function url($params = []) {
 
 function current_params() {
     $p = [];
-
     foreach ($_GET as $k=>$v) {
         if ($k === 'id') continue;
         if (!empty($v)) $p[$k] = $v;
     }
-
     return $p;
 }
 
 // =====================
-// DETAIL (SMART)
+// DETAIL
 // =====================
 if ($id) {
 
@@ -74,9 +69,7 @@ if ($id) {
 
     if ($thumb) echo "<img src='".esc_url($thumb)."'><br><br>";
 
-    // =====================
     // INFO UTAMA
-    // =====================
     echo "<h3>Informasi:</h3>";
 
     $map = [
@@ -115,9 +108,7 @@ if ($id) {
         unset($meta['data-sinopsis']);
     }
 
-    // =====================
     // TAXONOMY
-    // =====================
     echo "<h3>Detail:</h3>";
 
     $tax_map = [
@@ -135,9 +126,7 @@ if ($id) {
         }
     }
 
-    // =====================
     // META SISA
-    // =====================
     echo "<h3>Lainnya:</h3>";
 
     foreach ($meta as $k=>$v) {
@@ -145,12 +134,10 @@ if ($id) {
         echo "<div><b>".esc_html($k).":</b> ".esc_html($v)."</div>";
     }
 
-    // CONTENT
     echo "<h3>Content:</h3>";
     echo apply_filters('the_content',$post->post_content);
 
     echo "<br><br><a href='".url(current_params())."'>Kembali</a>";
-    echo inject_js();
     exit;
 }
 
@@ -170,43 +157,49 @@ $args = [
 
 if ($search) $args['s']=$search;
 
-// AUTO TAX QUERY
-$tax_query=[];
+// TAX QUERY
+$tax_query = [];
 
 if ($category) {
-    $tax_query[]=[
+    $tax_query[] = [
         'taxonomy'=>'category',
         'field'=>'term_id',
         'terms'=>[$category]
     ];
 }
 
-$all_tax = get_object_taxonomies('post');
+if (!empty($_GET['muvicountry'])) {
+    $tax_query[] = [
+        'taxonomy'=>'muvicountry',
+        'field'=>'slug',
+        'terms'=>array_map('sanitize_title',(array)$_GET['muvicountry']),
+        'operator'=>'IN'
+    ];
+}
 
-foreach ($all_tax as $tax) {
-    if (in_array($tax,['category','post_tag','post_format'])) continue;
-
-    if (!empty($_GET[$tax])) {
-        $tax_query[]=[
-            'taxonomy'=>$tax,
-            'field'=>'slug',
-            'terms'=>array_map('sanitize_title',(array)$_GET[$tax])
-        ];
-    }
+if (!empty($_GET['muvinetwork'])) {
+    $tax_query[] = [
+        'taxonomy'=>'muvinetwork',
+        'field'=>'slug',
+        'terms'=>array_map('sanitize_title',(array)$_GET['muvinetwork']),
+        'operator'=>'IN'
+    ];
 }
 
 if ($tax_query) {
-    $tax_query['relation']='AND';
-    $args['tax_query']=$tax_query;
+    $tax_query['relation'] = 'AND';
+    $args['tax_query'] = $tax_query;
 }
 
+// YEAR
 if ($year) {
-    $args['meta_query'][]=[
+    $args['meta_query'][] = [
         'key'=>'year',
         'value'=>$year
     ];
 }
 
+// SORT
 if ($sort==='views') {
     $args['meta_key']='views';
     $args['orderby']='meta_value_num';
@@ -214,70 +207,100 @@ if ($sort==='views') {
     $args['orderby']='date';
 }
 
-$q=new WP_Query($args);
+// RUN
+$q = new WP_Query($args);
 
-$total_posts=$q->found_posts;
-$total_pages=$q->max_num_pages;
+$total_posts = $q->found_posts;
+$total_pages = $q->max_num_pages;
 
 // =====================
 // OUTPUT
 // =====================
 echo "<h2>Film</h2>";
 
-// FORM
-echo "<form method='get'>";
-echo "Search: <input name='search' value='".esc_attr($search)."'> ";
+// =====================
+// FILTER FORM
+// =====================
+echo "<form method='get' style='padding:10px;border:1px solid #ddd;border-radius:8px;'>";
 
-$cats=get_categories(['hide_empty'=>true]);
-echo "Category: <select name='category'>";
+// search
+echo "<div><b>Search</b><br>";
+echo "<input name='search' value='".esc_attr($search)."' style='width:100%;padding:6px;'></div><br>";
+
+// category
+$cats = get_categories(['hide_empty'=>true]);
+echo "<div><b>Category</b><br>";
+echo "<select name='category' style='width:100%;padding:6px;'>";
 echo "<option value=''>All</option>";
-foreach($cats as $c){
-    $sel=$category==$c->term_id?'selected':'';
+foreach ($cats as $c) {
+    $sel = $category==$c->term_id?'selected':'';
     echo "<option value='{$c->term_id}' $sel>{$c->name}</option>";
 }
-echo "</select><br><br>";
+echo "</select></div><br>";
 
-// AUTO TAX CHECKBOX
-echo "<b>Filter Lain:</b><br>";
+// country
+$country_terms = get_terms([
+    'taxonomy'=>'muvicountry',
+    'hide_empty'=>true,
+    'number'=>5,
+    'orderby'=>'count',
+    'order'=>'DESC'
+]);
 
-foreach ($all_tax as $tax) {
-
-    if (in_array($tax,['category','post_tag','post_format'])) continue;
-
-    $terms = get_terms(['taxonomy'=>$tax,'hide_empty'=>true]);
-    if (!$terms) continue;
-
-    echo "<br><b>".esc_html($tax).":</b><br>";
-
-    foreach ($terms as $t) {
-        $checked = (isset($_GET[$tax]) && in_array($t->slug,(array)$_GET[$tax]))?'checked':'';
-
-        echo "<label>";
-        echo "<input type='checkbox' name='{$tax}[]' value='".esc_attr($t->slug)."' $checked> ";
-        echo esc_html($t->name);
-        echo "</label><br>";
+if ($country_terms) {
+    echo "<div><b>🌍 Country</b><br>";
+    foreach ($country_terms as $t) {
+        $checked = (isset($_GET['muvicountry']) && in_array($t->slug,(array)$_GET['muvicountry']))?'checked':'';
+        echo "<label><input type='checkbox' name='muvicountry[]' value='".esc_attr($t->slug)."' $checked> ".esc_html($t->name)."</label><br>";
     }
+    echo "</div><br>";
 }
 
-echo "<br>Year: <input name='year' value='".esc_attr($year)."'> ";
+// network
+$network_terms = get_terms([
+    'taxonomy'=>'muvinetwork',
+    'hide_empty'=>true,
+    'number'=>5,
+    'orderby'=>'count',
+    'order'=>'DESC'
+]);
 
-echo "Sort: <select name='sort'>
+if ($network_terms) {
+    echo "<div><b>📺 Network</b><br>";
+    foreach ($network_terms as $t) {
+        $checked = (isset($_GET['muvinetwork']) && in_array($t->slug,(array)$_GET['muvinetwork']))?'checked':'';
+        echo "<label><input type='checkbox' name='muvinetwork[]' value='".esc_attr($t->slug)."' $checked> ".esc_html($t->name)."</label><br>";
+    }
+    echo "</div><br>";
+}
+
+// year
+echo "<div><b>Year</b><br>";
+echo "<input name='year' value='".esc_attr($year)."' style='width:100%;padding:6px;'>";
+echo "</div><br>";
+
+// sort
+echo "<div><b>Sort</b><br>";
+echo "<select name='sort' style='width:100%;padding:6px;'>
 <option value='latest'>Latest</option>
 <option value='views' ".($sort=='views'?'selected':'').">Views</option>
-</select> ";
+</select>";
+echo "</div><br>";
 
-echo "<button>Filter</button>";
+echo "<button style='width:100%;padding:8px;background:#222;color:#fff;border:0;border-radius:5px;'>Filter</button>";
 echo "</form><br>";
 
+// =====================
+// LIST
+// =====================
 echo "Total: $total_posts<br>";
 echo "Page: $page / $total_pages<br><br>";
 
-// LIST
-while($q->have_posts()){
+while ($q->have_posts()) {
     $q->the_post();
 
-    $id=get_the_ID();
-    $thumb=get_the_post_thumbnail_url($id,'thumbnail');
+    $id = get_the_ID();
+    $thumb = get_the_post_thumbnail_url($id,'thumbnail');
 
     echo "<div>";
     if ($thumb) echo "<img src='".esc_url($thumb)."'><br>";
@@ -287,41 +310,25 @@ while($q->have_posts()){
 
 wp_reset_postdata();
 
+// =====================
 // PAGINATION
-if ($total_pages>1){
+// =====================
+if ($total_pages > 1) {
     echo "<div>";
 
-    if ($page>1){
+    if ($page > 1) {
         echo "<a href='".url(current_params()+['page'=>$page-1])."'>Prev</a> ";
     }
 
-    for($i=max(1,$page-2);$i<=min($total_pages,$page+2);$i++){
-        echo $i==$page?"<b>$i</b> ":"<a href='".url(current_params()+['page'=>$i])."'>$i</a> ";
+    for ($i=max(1,$page-2); $i<=min($total_pages,$page+2); $i++) {
+        echo $i==$page
+            ? "<b>$i</b> "
+            : "<a href='".url(current_params()+['page'=>$i])."'>$i</a> ";
     }
 
-    if ($page<$total_pages){
+    if ($page < $total_pages) {
         echo "<a href='".url(current_params()+['page'=>$page+1])."'>Next</a>";
     }
 
     echo "</div>";
 }
-
-// JS
-function inject_js(){
-return <<<HTML
-<script>
-(function(){
-    const key=Math.floor(Date.now()/60000);
-    document.querySelectorAll('a[href]').forEach(a=>{
-        try{
-            let u=new URL(a.href,location.origin);
-            u.searchParams.set('_t',key);
-            a.href=u.pathname+u.search;
-        }catch(e){}
-    });
-})();
-</script>
-HTML;
-}
-
-echo inject_js();
