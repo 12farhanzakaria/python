@@ -9,9 +9,9 @@ add_filter('redirect_canonical', '__return_false');
 // PARAM
 // =====================
 $id       = (int)($_GET['id'] ?? 0);
-$category = (int)($_GET['category'] ?? 0);
 $page     = max(1, (int)($_GET['page'] ?? 1));
 $search   = sanitize_text_field($_GET['search'] ?? '');
+$category = (int)($_GET['category'] ?? 0);
 $year     = preg_replace('/[^0-9]/', '', $_GET['year'] ?? '');
 $sort     = in_array($_GET['sort'] ?? '', ['latest','views']) ? $_GET['sort'] : 'latest';
 
@@ -19,14 +19,10 @@ $genre = $_GET['genre'] ?? [];
 if (!is_array($genre)) $genre = [];
 $genre = array_map('sanitize_title', $genre);
 
-// =====================
-// CONFIG
-// =====================
 $per_page = 20;
-$offset   = ($page - 1) * $per_page;
 
 // =====================
-// URL BUILDER
+// URL HELPER
 // =====================
 function url($params = []) {
     return '?' . http_build_query($params);
@@ -45,34 +41,76 @@ function current_params() {
 }
 
 // =====================
-// DETAIL
+// DETAIL (FULL DATA)
 // =====================
 if ($id) {
 
     $post = get_post($id);
     if (!$post) exit('Not found');
 
-    $title = get_the_title($post);
-    $thumb = get_the_post_thumbnail_url($post, 'full');
+    $thumb = get_the_post_thumbnail_url($id, 'full');
 
-    echo "<h1>$title</h1>";
+    // META (SEMUA)
+    $meta_raw = get_post_meta($id);
+    $meta = [];
+
+    foreach ($meta_raw as $key => $val) {
+        if ($key[0] === '_') continue;
+        $meta[$key] = maybe_unserialize($val[0]);
+    }
+
+    // TAXONOMY (SEMUA)
+    $tax = [];
+    foreach (get_object_taxonomies($post->post_type) as $taxonomy) {
+        $terms = get_the_terms($id, $taxonomy);
+        if (!empty($terms) && !is_wp_error($terms)) {
+            $tax[$taxonomy] = array_column($terms, 'name');
+        }
+    }
+
+    // OUTPUT
+    echo "<h1>{$post->post_title}</h1>";
+
     if ($thumb) echo "<img src='$thumb'><br><br>";
 
-    echo "<a href='".url(current_params())."'>Kembali</a>";
+    echo "Tanggal: {$post->post_date}<br><br>";
 
-    echo inject_js(); // inject JS tetap jalan di detail
+    if ($meta) {
+        echo "<h3>Meta:</h3>";
+        foreach ($meta as $k => $v) {
+            if (is_array($v)) $v = implode(', ', $v);
+            echo "<div><b>$k:</b> $v</div>";
+        }
+        echo "<br>";
+    }
+
+    if ($tax) {
+        echo "<h3>Taxonomy:</h3>";
+        foreach ($tax as $k => $v) {
+            echo "<div><b>$k:</b> ".implode(', ', $v)."</div>";
+        }
+        echo "<br>";
+    }
+
+    echo "<h3>Content:</h3>";
+    echo $post->post_content;
+
+    echo "<br><br><a href='".url(current_params())."'>Kembali</a>";
+
+    echo inject_js();
     exit;
 }
 
 // =====================
-// BASE QUERY
+// QUERY
 // =====================
 $args = [
     'post_type' => ['post','tv'],
     'posts_per_page' => $per_page,
-    'offset' => $offset,
-    'ignore_sticky_posts' => true,
+    'paged' => $page,
     'post_status' => 'publish',
+    'ignore_sticky_posts' => true,
+    'no_found_rows' => false
 ];
 
 // FILTER
@@ -82,17 +120,17 @@ $tax_query = [];
 
 if ($category) {
     $tax_query[] = [
-        'taxonomy' => 'category',
-        'field' => 'term_id',
-        'terms' => [$category],
+        'taxonomy'=>'category',
+        'field'=>'term_id',
+        'terms'=>[$category],
     ];
 }
 
 if ($genre) {
     $tax_query[] = [
-        'taxonomy' => 'category',
-        'field' => 'slug',
-        'terms' => $genre,
+        'taxonomy'=>'category',
+        'field'=>'slug',
+        'terms'=>$genre,
     ];
 }
 
@@ -103,8 +141,8 @@ if ($tax_query) {
 
 if ($year) {
     $args['meta_query'][] = [
-        'key' => 'year',
-        'value' => $year,
+        'key'=>'year',
+        'value'=>$year
     ];
 }
 
@@ -118,48 +156,38 @@ if ($sort === 'views') {
     $args['order'] = 'DESC';
 }
 
-// =====================
-// MAIN QUERY
-// =====================
+// RUN
 $q = new WP_Query($args);
 
-// =====================
-// COUNT QUERY (AKURAT)
-// =====================
-$count_args = $args;
-$count_args['posts_per_page'] = 1;
-$count_args['offset'] = 0;
-$count_args['no_found_rows'] = false;
-
-$count_query = new WP_Query($count_args);
-
-$total_posts = $count_query->found_posts;
-$total_pages = max(1, ceil($total_posts / $per_page));
+$total_posts = $q->found_posts;
+$total_pages = $q->max_num_pages;
 
 // =====================
-// OUTPUT
+// OUTPUT LIST
 // =====================
 echo "<h2>Film</h2>";
+
+echo "<form method='get'>";
+echo "Search: <input name='search' value='".esc_attr($search)."'> ";
+echo "<button>Cari</button>";
+echo "</form><br>";
 
 echo "Total: $total_posts<br>";
 echo "Page: $page / $total_pages<br><br>";
 
-// =====================
-// LIST
-// =====================
 while ($q->have_posts()) {
     $q->the_post();
 
     $post_id = get_the_ID();
-    $title = get_the_title();
     $thumb = get_the_post_thumbnail_url($post_id, 'thumbnail');
 
     echo "<div>";
-    echo "<a href='".url(current_params()+['id'=>$post_id])."'>";
 
     if ($thumb) echo "<img src='$thumb'><br>";
 
-    echo "$title</a>";
+    echo "<a href='".url(current_params()+['id'=>$post_id])."'><b>".get_the_title()."</b></a><br>";
+    echo "Tanggal: ".get_the_date()."<br>";
+
     echo "</div><br>";
 }
 
@@ -176,12 +204,10 @@ if ($total_pages > 1) {
         echo "<a href='".url(current_params()+['page'=>$page-1])."'>Prev</a> ";
     }
 
-    for ($i = max(1, $page-2); $i <= min($total_pages, $page+2); $i++) {
-        if ($i == $page) {
-            echo "<b>$i</b> ";
-        } else {
-            echo "<a href='".url(current_params()+['page'=>$i])."'>$i</a> ";
-        }
+    for ($i=max(1,$page-2); $i<=min($total_pages,$page+2); $i++) {
+        echo $i==$page
+            ? "<b>$i</b> "
+            : "<a href='".url(current_params()+['page'=>$i])."'>$i</a> ";
     }
 
     if ($page < $total_pages) {
@@ -192,44 +218,20 @@ if ($total_pages > 1) {
 }
 
 // =====================
-// JS CACHE BYPASS (AUTO INJECT)
+// JS CACHE BYPASS
 // =====================
-function inject_js() {
+function inject_js(){
 return <<<HTML
 <script>
 (function(){
-
-    // ganti tiap 60 detik (stabil)
-    const cacheKey = Math.floor(Date.now() / 60000);
-
-    // update semua link
-    document.querySelectorAll('a[href]').forEach(link => {
-        try {
-            const url = new URL(link.href, window.location.origin);
-
-            if (url.protocol.startsWith('javascript')) return;
-
-            url.searchParams.delete('_t');
-            url.searchParams.set('_t', cacheKey);
-
-            link.href = url.pathname + url.search;
-        } catch(e){}
+    const key = Math.floor(Date.now()/60000);
+    document.querySelectorAll('a[href]').forEach(a=>{
+        try{
+            let u=new URL(a.href,location.origin);
+            u.searchParams.set('_t',key);
+            a.href=u.pathname+u.search;
+        }catch(e){}
     });
-
-    // update form
-    document.querySelectorAll('form').forEach(form => {
-        form.addEventListener('submit', function(){
-            let input = form.querySelector('input[name="_t"]');
-            if (!input) {
-                input = document.createElement('input');
-                input.type = 'hidden';
-                input.name = '_t';
-                form.appendChild(input);
-            }
-            input.value = cacheKey;
-        });
-    });
-
 })();
 </script>
 HTML;
