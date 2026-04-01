@@ -40,7 +40,14 @@ if ($id) {
 
     $post = get_post($id);
     if (!$post) exit('Not found');
+// =====================
+// DEBUG CONTENT (RAW)
+// =====================
+echo "<h3>Raw Content (Debug):</h3>";
 
+echo "<pre style='background:#111;color:#0f0;padding:10px;font-size:12px;overflow:auto;'>";
+echo esc_html($post->post_content);
+echo "</pre>";
     $thumb = get_the_post_thumbnail_url($id, 'full');
 
     // META
