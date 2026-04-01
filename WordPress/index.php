@@ -34,21 +34,22 @@ function current_params() {
 }
 
 // =====================
-// DETAIL
+// DETAIL FULL + PLAYER
 // =====================
 if ($id) {
 
     $post = get_post($id);
     if (!$post) exit('Not found');
 
-    $thumb = get_the_post_thumbnail_url($id, 'full');
+    $title = get_the_title($post);
+    $thumb = get_the_post_thumbnail_url($post, 'full');
 
     // META
-    $meta_raw = get_post_meta($id);
+    $meta_raw = get_post_meta($post->ID);
     $meta = [];
 
-    foreach ($meta_raw as $k=>$v) {
-        if ($k[0]==='_') continue;
+    foreach ($meta_raw as $k => $v) {
+        if ($k[0] === '_') continue;
 
         $val = maybe_unserialize($v[0]);
         if (is_array($val)) $val = implode(', ', $val);
@@ -59,13 +60,13 @@ if ($id) {
     // TAX
     $tax = [];
     foreach (get_object_taxonomies($post->post_type) as $t) {
-        $terms = get_the_terms($id, $t);
+        $terms = get_the_terms($post->ID, $t);
         if ($terms && !is_wp_error($terms)) {
             $tax[$t] = array_column($terms, 'name');
         }
     }
 
-    echo "<h1>".esc_html($post->post_title)."</h1>";
+    echo "<h1>".esc_html($title)."</h1>";
 
     if ($thumb) echo "<img src='".esc_url($thumb)."' width='200'><br><br>";
 
@@ -74,13 +75,10 @@ if ($id) {
     // =====================
     $drive_links = [];
 
-    // MOVIE
     if (!empty($meta['IDMUVICORE_Player1'])) {
         $drive_links[] = $meta['IDMUVICORE_Player1'];
     } else {
-        // SERIES
         preg_match_all('/https?:\/\/[^\s"]*drive\.google\.com[^\s"]*/', $post->post_content, $m);
-
         if (!empty($m[0])) {
             $drive_links = array_values(array_unique($m[0]));
         }
@@ -109,7 +107,7 @@ if ($id) {
     // =====================
     if (count($drive_links) > 1) {
 
-        echo "<h3>Link Lain:</h3>";
+        echo "<h3>Episode:</h3>";
 
         foreach ($drive_links as $i => $link) {
 
@@ -125,31 +123,43 @@ if ($id) {
     }
 
     // =====================
-    // INFO
+    // META FULL
     // =====================
-    echo "<h3>Detail:</h3>";
+    echo "<h3>Meta:</h3>";
 
-    $tax_map = [
-        'category'=>'Kategori',
-        'post_tag'=>'Tag',
-        'muvicast'=>'Cast',
-        'muvicountry'=>'Negara',
-        'muvinetwork'=>'Network'
-    ];
+    foreach ($meta as $k => $v) {
+        if (!$v || $v === 'Array') continue;
 
-    foreach ($tax_map as $k=>$label) {
-        if (!empty($tax[$k])) {
-            echo "<div><b>$label:</b> ".esc_html(implode(', ', $tax[$k]))."</div>";
-        }
+        echo "<div><b>".esc_html($k).":</b> ".esc_html($v)."</div>";
     }
 
-    // SINOPSIS
-    if (!empty($meta['data-sinopsis'])) {
-        echo "<h3>Sinopsis:</h3>";
-        echo "<p>".esc_html($meta['data-sinopsis'])."</p>";
+    echo "<hr>";
+
+    // =====================
+    // TAX FULL
+    // =====================
+    echo "<h3>Taxonomy:</h3>";
+
+    foreach ($tax as $k => $v) {
+        echo "<div><b>".esc_html($k).":</b> ".esc_html(implode(', ', $v))."</div>";
     }
+
+    echo "<hr>";
+
+    // =====================
+    // CONTENT (BERSIH)
+    // =====================
+    echo "<h3>Content:</h3>";
+
+    $content = $post->post_content;
+    $content = strip_shortcodes($content);
+    $content = preg_replace('/\[[^\]]*\]/', '', $content);
+    $content = wp_strip_all_tags($content);
+
+    echo "<div>".nl2br(trim($content))."</div>";
 
     echo "<br><a href='".url(current_params())."'>Kembali</a>";
+
     exit;
 }
 
@@ -167,38 +177,17 @@ $args = [
 
 if ($search) $args['s']=$search;
 
-// TAX
-$tax_query = [];
-
+// CATEGORY
 if ($category) {
-    $tax_query[] = [
-        'taxonomy'=>'category',
-        'field'=>'term_id',
-        'terms'=>[$category]
-    ];
+    $args['cat'] = $category;
 }
 
-if (!empty($_GET['muvicountry'])) {
-    $tax_query[] = [
-        'taxonomy'=>'muvicountry',
-        'field'=>'slug',
-        'terms'=>array_map('sanitize_title',(array)$_GET['muvicountry']),
-        'operator'=>'IN'
+// YEAR
+if ($year) {
+    $args['meta_query'][] = [
+        'key'=>'year',
+        'value'=>$year
     ];
-}
-
-if (!empty($_GET['muvinetwork'])) {
-    $tax_query[] = [
-        'taxonomy'=>'muvinetwork',
-        'field'=>'slug',
-        'terms'=>array_map('sanitize_title',(array)$_GET['muvinetwork']),
-        'operator'=>'IN'
-    ];
-}
-
-if ($tax_query) {
-    $tax_query['relation'] = 'AND';
-    $args['tax_query'] = $tax_query;
 }
 
 // SORT
@@ -210,6 +199,9 @@ if ($sort==='views') {
 }
 
 $q = new WP_Query($args);
+
+$total_posts = $q->found_posts;
+$total_pages = $q->max_num_pages;
 
 // =====================
 // OUTPUT
@@ -233,19 +225,22 @@ echo "</select>";
 echo "<button>Filter</button>";
 echo "</form><br>";
 
+echo "Total: $total_posts<br>";
+echo "Page: $page / $total_pages<br><br>";
+
 // LIST
 while ($q->have_posts()) {
     $q->the_post();
 
-    $id = get_the_ID();
-    $thumb = get_the_post_thumbnail_url($id,'thumbnail');
+    $pid = get_the_ID();
+    $thumb = get_the_post_thumbnail_url($pid,'thumbnail');
 
     echo "<div>";
 
     if ($thumb) echo "<img src='".esc_url($thumb)."'><br>";
 
-    echo "<a href='".url(current_params()+['id'=>$id])."'>";
-    echo esc_html(get_the_title());
+    echo "<a href='".url(current_params()+['id'=>$pid])."'>";
+    echo "<b>".esc_html(get_the_title())."</b>";
     echo "</a>";
 
     echo "</div><br>";
