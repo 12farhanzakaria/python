@@ -34,7 +34,7 @@ function current_params() {
 }
 
 // =====================
-// TMDB
+// TMDB FUNCTION
 // =====================
 function get_tmdb($tmdb_id) {
 
@@ -57,13 +57,14 @@ function get_tmdb($tmdb_id) {
 }
 
 // =====================
-// HELPER FILTER COUNT
+// FILTER COUNT HELPER
 // =====================
 function get_terms_with_count_filtered($taxonomy, $base_args) {
 
     $ids_args = $base_args;
     $ids_args['fields'] = 'ids';
     $ids_args['posts_per_page'] = -1;
+    $ids_args['no_found_rows'] = true;
 
     $q_ids = new WP_Query($ids_args);
     $object_ids = $q_ids->posts ?: [];
@@ -93,14 +94,41 @@ if ($id) {
     if (!$post) exit('Not found');
 
     $meta = get_post_meta($id);
-
-    // ambil TMDB ID
-    $tmdb_id = '';
-    if (!empty($meta['IDMUVICORE_tmdbID'][0])) {
-        $tmdb_id = $meta['IDMUVICORE_tmdbID'][0];
-    }
+    $tmdb_id = $meta['IDMUVICORE_tmdbID'][0] ?? '';
 
     $tmdb = get_tmdb($tmdb_id);
+
+    // =====================
+    // DEBUG TMDB
+    // =====================
+    if (!$tmdb) {
+
+        echo "<h3>DEBUG TMDB</h3>";
+        echo "TMDB ID: ".esc_html($tmdb_id)."<br>";
+
+        if (!$tmdb_id) {
+            echo "❌ TMDB ID kosong<br>";
+        } else {
+
+            $api_key = 'ISI_API_KEY_KAMU';
+            $test_url = "https://api.themoviedb.org/3/movie/$tmdb_id?api_key=$api_key";
+
+            echo "<a href='$test_url' target='_blank'>$test_url</a><br>";
+
+            $res = wp_remote_get($test_url);
+
+            if (is_wp_error($res)) {
+                echo "❌ ".$res->get_error_message();
+            } else {
+                echo "HTTP: ".wp_remote_retrieve_response_code($res)."<br>";
+                echo "<pre>";
+                echo esc_html(substr(wp_remote_retrieve_body($res),0,500));
+                echo "</pre>";
+            }
+        }
+
+        echo "<hr>";
+    }
 
     // =====================
     // TMDB OUTPUT
@@ -114,66 +142,36 @@ if ($id) {
         echo "<h1>".($tmdb['title'] ?? $tmdb['name'])."</h1>";
 
         echo "Tahun: ".substr($tmdb['release_date'] ?? $tmdb['first_air_date'],0,4)."<br>";
-
-        if (!empty($tmdb['runtime'])) {
-            echo "Durasi: {$tmdb['runtime']} menit<br>";
-        }
-
         echo "Rating: {$tmdb['vote_average']} ({$tmdb['vote_count']})<br>";
 
         if (!empty($tmdb['genres'])) {
             echo "Genre: ".implode(', ', array_column($tmdb['genres'],'name'))."<br>";
         }
 
-        if (!empty($tmdb['production_countries'])) {
-            echo "Negara: ".implode(', ', array_column($tmdb['production_countries'],'name'))."<br>";
-        }
-
-        // DIRECTOR
-        if (!empty($tmdb['credits']['crew'])) {
-            foreach ($tmdb['credits']['crew'] as $c) {
-                if ($c['job'] === 'Director') {
-                    echo "Director: ".$c['name']."<br>";
-                    break;
-                }
-            }
-        }
-
-        // CAST
         if (!empty($tmdb['credits']['cast'])) {
             echo "<h3>Cast</h3>";
             foreach (array_slice($tmdb['credits']['cast'],0,5) as $c) {
-                echo $c['name']." (".$c['character'].")<br>";
+                echo $c['name']."<br>";
             }
         }
 
-        // SINOPSIS
         if (!empty($tmdb['overview'])) {
             echo "<h3>Sinopsis</h3>";
             echo "<p>".$tmdb['overview']."</p>";
         }
 
-        // TRAILER
         if (!empty($tmdb['videos']['results'])) {
             foreach ($tmdb['videos']['results'] as $v) {
                 if ($v['site']==='YouTube') {
-                    echo "<iframe width='100%' height='300' src='https://www.youtube.com/embed/".$v['key']."' allowfullscreen></iframe><br>";
+                    echo "<iframe width='100%' height='300' src='https://www.youtube.com/embed/".$v['key']."'></iframe>";
                     break;
                 }
-            }
-        }
-
-        // SIMILAR
-        if (!empty($tmdb['similar']['results'])) {
-            echo "<h3>Rekomendasi</h3>";
-            foreach (array_slice($tmdb['similar']['results'],0,5) as $s) {
-                echo ($s['title'] ?? $s['name'])."<br>";
             }
         }
     }
 
     // =====================
-    // DRIVE LINK
+    // DRIVE
     // =====================
     $drive_links = [];
 
@@ -194,7 +192,6 @@ if ($id) {
     $drive_links = array_unique($drive_links);
 
     echo "<h3>Link Drive</h3>";
-
     foreach ($drive_links as $i => $link) {
         echo "<a href='$link' target='_blank'>Link ".($i+1)."</a><br>";
     }
@@ -210,11 +207,10 @@ $args = [
     'post_type'=>['post','tv'],
     'posts_per_page'=>$per_page,
     'paged'=>$page,
-    'post_status'=>'publish'
+    'post_status'=>'publish',
 ];
 
 if ($search) $args['s']=$search;
-
 if ($category) $args['cat']=$category;
 
 if ($year) {
@@ -235,7 +231,6 @@ if ($sort==='views') {
 // FILTER
 // =====================
 echo "<form method='get'>";
-
 echo "<input name='search' value='".esc_attr($search)."'> ";
 
 $cats = get_categories(['hide_empty'=>true]);
@@ -247,9 +242,7 @@ foreach ($cats as $c) {
 echo "</select> ";
 
 echo "<input name='year' value='".esc_attr($year)."' placeholder='Year'> ";
-
 echo "<button>Filter</button>";
-
 echo "</form><br>";
 
 // =====================
@@ -260,10 +253,20 @@ $q = new WP_Query($args);
 while ($q->have_posts()) {
     $q->the_post();
 
+    $pid = get_the_ID();
+    $thumb = get_the_post_thumbnail_url($pid,'thumbnail');
+
     echo "<div>";
-    echo "<a href='".url(current_params()+['id'=>get_the_ID()])."'>";
-    echo get_the_title();
-    echo "</a>";
+
+    if ($thumb) {
+        echo "<a href='".url(current_params()+['id'=>$pid])."'>";
+        echo "<img src='".esc_url($thumb)."' width='120'>";
+        echo "</a><br>";
+    }
+
+    echo "<a href='".url(current_params()+['id'=>$pid])."'><b>".esc_html(get_the_title())."</b></a><br>";
+    echo "<small>".get_the_date('Y')."</small>";
+
     echo "</div><br>";
 }
 
