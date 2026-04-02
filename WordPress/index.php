@@ -34,7 +34,38 @@ function current_params() {
 }
 
 // =====================
-// DETAIL FULL + PLAYER
+// HELPER COUNT FILTER
+// =====================
+function get_terms_with_count_filtered($taxonomy, $base_args) {
+
+    $ids_args = $base_args;
+    $ids_args['fields'] = 'ids';
+    $ids_args['posts_per_page'] = -1;
+    $ids_args['no_found_rows'] = true;
+
+    $q_ids = new WP_Query($ids_args);
+    $object_ids = $q_ids->posts ?: [];
+
+    if (!$object_ids) return [];
+
+    $terms = get_terms([
+        'taxonomy'   => $taxonomy,
+        'hide_empty' => false,
+        'object_ids' => $object_ids,
+    ]);
+
+    $out = [];
+    foreach ($terms as $t) {
+        if ($t->count > 0) {
+            $out[] = $t;
+        }
+    }
+
+    return $out;
+}
+
+// =====================
+// DETAIL
 // =====================
 if ($id) {
 
@@ -71,7 +102,7 @@ if ($id) {
     if ($thumb) echo "<img src='".esc_url($thumb)."' width='200'><br><br>";
 
     // =====================
-    // DRIVE SYSTEM
+    // DRIVE
     // =====================
     $drive_links = [];
 
@@ -84,9 +115,7 @@ if ($id) {
         }
     }
 
-    // =====================
     // PLAYER
-    // =====================
     $first = $drive_links[0] ?? null;
 
     if ($first && preg_match('/\/d\/(.*?)\//', $first, $match)) {
@@ -94,61 +123,41 @@ if ($id) {
         $file_id = $match[1];
 
         echo "<h3>Player</h3>";
-
-        echo "<iframe 
-            src='https://drive.google.com/file/d/$file_id/preview' 
-            width='100%' height='480' 
-            allowfullscreen>
-        </iframe><br><br>";
+        echo "<iframe src='https://drive.google.com/file/d/$file_id/preview' width='100%' height='480' allowfullscreen></iframe><br><br>";
     }
 
-    // =====================
-    // LIST LINK (SERIES)
-    // =====================
+    // SERIES LIST
     if (count($drive_links) > 1) {
 
         echo "<h3>Episode:</h3>";
 
         foreach ($drive_links as $i => $link) {
-
             $num = $i + 1;
 
-            echo "<div>";
-            echo "Episode $num - ";
-            echo "<a href='".esc_url($link)."' target='_blank'>Buka</a>";
-            echo "</div>";
+            echo "<div>Episode $num - <a href='".esc_url($link)."' target='_blank'>Buka</a></div>";
         }
 
         echo "<br>";
     }
 
-    // =====================
-    // META FULL
-    // =====================
+    // META
     echo "<h3>Meta:</h3>";
-
     foreach ($meta as $k => $v) {
         if (!$v || $v === 'Array') continue;
-
         echo "<div><b>".esc_html($k).":</b> ".esc_html($v)."</div>";
     }
 
     echo "<hr>";
 
-    // =====================
-    // TAX FULL
-    // =====================
+    // TAX
     echo "<h3>Taxonomy:</h3>";
-
     foreach ($tax as $k => $v) {
         echo "<div><b>".esc_html($k).":</b> ".esc_html(implode(', ', $v))."</div>";
     }
 
     echo "<hr>";
 
-    // =====================
-    // CONTENT (BERSIH)
-    // =====================
+    // CONTENT
     echo "<h3>Content:</h3>";
 
     $content = $post->post_content;
@@ -159,12 +168,11 @@ if ($id) {
     echo "<div>".nl2br(trim($content))."</div>";
 
     echo "<br><a href='".url(current_params())."'>Kembali</a>";
-
     exit;
 }
 
 // =====================
-// QUERY
+// QUERY BASE
 // =====================
 $args = [
     'post_type'=>['post','tv'],
@@ -172,14 +180,40 @@ $args = [
     'paged'=>$page,
     'post_status'=>'publish',
     'ignore_sticky_posts'=>true,
-    'no_found_rows'=>false,
 ];
 
 if ($search) $args['s']=$search;
 
-// CATEGORY
+// TAX QUERY
+$tax_query = [];
+
 if ($category) {
-    $args['cat'] = $category;
+    $tax_query[] = [
+        'taxonomy'=>'category',
+        'field'=>'term_id',
+        'terms'=>[$category]
+    ];
+}
+
+if (!empty($_GET['muvicountry'])) {
+    $tax_query[] = [
+        'taxonomy'=>'muvicountry',
+        'field'=>'slug',
+        'terms'=>array_map('sanitize_title',(array)$_GET['muvicountry'])
+    ];
+}
+
+if (!empty($_GET['muvinetwork'])) {
+    $tax_query[] = [
+        'taxonomy'=>'muvinetwork',
+        'field'=>'slug',
+        'terms'=>array_map('sanitize_title',(array)$_GET['muvinetwork'])
+    ];
+}
+
+if ($tax_query) {
+    $tax_query['relation'] = 'AND';
+    $args['tax_query'] = $tax_query;
 }
 
 // YEAR
@@ -198,37 +232,49 @@ if ($sort==='views') {
     $args['orderby']='date';
 }
 
-$q = new WP_Query($args);
-
-$total_posts = $q->found_posts;
-$total_pages = $q->max_num_pages;
-
 // =====================
-// OUTPUT
+// FILTER FORM
 // =====================
-echo "<h2>Film</h2>";
+echo "<form method='get' style='padding:15px;border:1px solid #ddd;border-radius:10px;margin-bottom:20px;'>";
 
-// FILTER
-echo "<form method='get'>";
+echo "<input name='search' value='".esc_attr($search)."' placeholder='Search...' style='width:100%;padding:8px;'><br><br>";
 
-echo "Search: <input name='search' value='".esc_attr($search)."'> ";
-
+// CATEGORY
 $cats = get_categories(['hide_empty'=>true]);
-echo "<select name='category'>";
-echo "<option value=''>All</option>";
+echo "<select name='category' style='width:100%;padding:8px;'><option value=''>All</option>";
 foreach ($cats as $c) {
     $sel = $category==$c->term_id?'selected':'';
     echo "<option value='{$c->term_id}' $sel>{$c->name}</option>";
 }
-echo "</select>";
+echo "</select><br><br>";
 
-echo "<button>Filter</button>";
-echo "</form><br>";
+// COUNTRY (AUTO HIDE + COUNT)
+$country_terms = get_terms_with_count_filtered('muvicountry', $args);
+foreach ($country_terms as $t) {
+    $checked = (isset($_GET['muvicountry']) && in_array($t->slug,(array)$_GET['muvicountry']))?'checked':'';
+    echo "<label><input type='checkbox' name='muvicountry[]' value='{$t->slug}' $checked> {$t->name} ({$t->count})</label><br>";
+}
 
-echo "Total: $total_posts<br>";
-echo "Page: $page / $total_pages<br><br>";
+echo "<br>";
 
-// LIST
+// NETWORK
+$network_terms = get_terms_with_count_filtered('muvinetwork', $args);
+foreach ($network_terms as $t) {
+    $checked = (isset($_GET['muvinetwork']) && in_array($t->slug,(array)$_GET['muvinetwork']))?'checked':'';
+    echo "<label><input type='checkbox' name='muvinetwork[]' value='{$t->slug}' $checked> {$t->name} ({$t->count})</label><br>";
+}
+
+echo "<br>";
+
+echo "<input name='year' value='".esc_attr($year)."' placeholder='Year'><br><br>";
+
+echo "<button>Filter</button></form>";
+
+// =====================
+// RUN QUERY
+// =====================
+$q = new WP_Query($args);
+
 while ($q->have_posts()) {
     $q->the_post();
 
@@ -236,13 +282,8 @@ while ($q->have_posts()) {
     $thumb = get_the_post_thumbnail_url($pid,'thumbnail');
 
     echo "<div>";
-
     if ($thumb) echo "<img src='".esc_url($thumb)."'><br>";
-
-    echo "<a href='".url(current_params()+['id'=>$pid])."'>";
-    echo "<b>".esc_html(get_the_title())."</b>";
-    echo "</a>";
-
+    echo "<a href='".url(current_params()+['id'=>$pid])."'><b>".esc_html(get_the_title())."</b></a>";
     echo "</div><br>";
 }
 
