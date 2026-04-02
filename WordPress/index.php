@@ -34,14 +34,36 @@ function current_params() {
 }
 
 // =====================
-// HELPER COUNT FILTER
+// TMDB
+// =====================
+function get_tmdb($tmdb_id) {
+
+    if (!$tmdb_id) return [];
+
+    $api_key = '6b4357c41d9c606e4d7ebe2f4a8850ea';
+
+    $url_movie = "https://api.themoviedb.org/3/movie/$tmdb_id?api_key=$api_key&language=id-ID&append_to_response=credits,videos,similar";
+    $url_tv    = "https://api.themoviedb.org/3/tv/$tmdb_id?api_key=$api_key&language=id-ID&append_to_response=credits,videos,similar";
+
+    $res = wp_remote_get($url_movie);
+
+    if (is_wp_error($res) || wp_remote_retrieve_response_code($res) !== 200) {
+        $res = wp_remote_get($url_tv);
+    }
+
+    if (is_wp_error($res)) return [];
+
+    return json_decode(wp_remote_retrieve_body($res), true);
+}
+
+// =====================
+// HELPER FILTER COUNT
 // =====================
 function get_terms_with_count_filtered($taxonomy, $base_args) {
 
     $ids_args = $base_args;
     $ids_args['fields'] = 'ids';
     $ids_args['posts_per_page'] = -1;
-    $ids_args['no_found_rows'] = true;
 
     $q_ids = new WP_Query($ids_args);
     $object_ids = $q_ids->posts ?: [];
@@ -49,16 +71,14 @@ function get_terms_with_count_filtered($taxonomy, $base_args) {
     if (!$object_ids) return [];
 
     $terms = get_terms([
-        'taxonomy'   => $taxonomy,
-        'hide_empty' => false,
-        'object_ids' => $object_ids,
+        'taxonomy'=>$taxonomy,
+        'hide_empty'=>false,
+        'object_ids'=>$object_ids
     ]);
 
     $out = [];
     foreach ($terms as $t) {
-        if ($t->count > 0) {
-            $out[] = $t;
-        }
+        if ($t->count > 0) $out[] = $t;
     }
 
     return $out;
@@ -72,151 +92,131 @@ if ($id) {
     $post = get_post($id);
     if (!$post) exit('Not found');
 
-    $title = get_the_title($post);
-    $thumb = get_the_post_thumbnail_url($post, 'full');
+    $meta = get_post_meta($id);
 
-    // META
-    $meta_raw = get_post_meta($post->ID);
-    $meta = [];
-
-    foreach ($meta_raw as $k => $v) {
-        if ($k[0] === '_') continue;
-
-        $val = maybe_unserialize($v[0]);
-        if (is_array($val)) $val = implode(', ', $val);
-
-        $meta[$k] = $val;
+    // ambil TMDB ID
+    $tmdb_id = '';
+    if (!empty($meta['IDMUVICORE_tmdbID'][0])) {
+        $tmdb_id = $meta['IDMUVICORE_tmdbID'][0];
     }
 
-    // TAX
-    $tax = [];
-    foreach (get_object_taxonomies($post->post_type) as $t) {
-        $terms = get_the_terms($post->ID, $t);
-        if ($terms && !is_wp_error($terms)) {
-            $tax[$t] = array_column($terms, 'name');
+    $tmdb = get_tmdb($tmdb_id);
+
+    // =====================
+    // TMDB OUTPUT
+    // =====================
+    if ($tmdb) {
+
+        if (!empty($tmdb['backdrop_path'])) {
+            echo "<img src='https://image.tmdb.org/t/p/original{$tmdb['backdrop_path']}'><br><br>";
+        }
+
+        echo "<h1>".($tmdb['title'] ?? $tmdb['name'])."</h1>";
+
+        echo "Tahun: ".substr($tmdb['release_date'] ?? $tmdb['first_air_date'],0,4)."<br>";
+
+        if (!empty($tmdb['runtime'])) {
+            echo "Durasi: {$tmdb['runtime']} menit<br>";
+        }
+
+        echo "Rating: {$tmdb['vote_average']} ({$tmdb['vote_count']})<br>";
+
+        if (!empty($tmdb['genres'])) {
+            echo "Genre: ".implode(', ', array_column($tmdb['genres'],'name'))."<br>";
+        }
+
+        if (!empty($tmdb['production_countries'])) {
+            echo "Negara: ".implode(', ', array_column($tmdb['production_countries'],'name'))."<br>";
+        }
+
+        // DIRECTOR
+        if (!empty($tmdb['credits']['crew'])) {
+            foreach ($tmdb['credits']['crew'] as $c) {
+                if ($c['job'] === 'Director') {
+                    echo "Director: ".$c['name']."<br>";
+                    break;
+                }
+            }
+        }
+
+        // CAST
+        if (!empty($tmdb['credits']['cast'])) {
+            echo "<h3>Cast</h3>";
+            foreach (array_slice($tmdb['credits']['cast'],0,5) as $c) {
+                echo $c['name']." (".$c['character'].")<br>";
+            }
+        }
+
+        // SINOPSIS
+        if (!empty($tmdb['overview'])) {
+            echo "<h3>Sinopsis</h3>";
+            echo "<p>".$tmdb['overview']."</p>";
+        }
+
+        // TRAILER
+        if (!empty($tmdb['videos']['results'])) {
+            foreach ($tmdb['videos']['results'] as $v) {
+                if ($v['site']==='YouTube') {
+                    echo "<iframe width='100%' height='300' src='https://www.youtube.com/embed/".$v['key']."' allowfullscreen></iframe><br>";
+                    break;
+                }
+            }
+        }
+
+        // SIMILAR
+        if (!empty($tmdb['similar']['results'])) {
+            echo "<h3>Rekomendasi</h3>";
+            foreach (array_slice($tmdb['similar']['results'],0,5) as $s) {
+                echo ($s['title'] ?? $s['name'])."<br>";
+            }
         }
     }
 
-    echo "<h1>".esc_html($title)."</h1>";
-
-    if ($thumb) echo "<img src='".esc_url($thumb)."' width='200'><br><br>";
-
     // =====================
-    // DRIVE
+    // DRIVE LINK
     // =====================
     $drive_links = [];
 
-    if (!empty($meta['IDMUVICORE_Player1'])) {
-        $drive_links[] = $meta['IDMUVICORE_Player1'];
-    } else {
-        preg_match_all('/https?:\/\/[^\s"]*drive\.google\.com[^\s"]*/', $post->post_content, $m);
-        if (!empty($m[0])) {
-            $drive_links = array_values(array_unique($m[0]));
+    foreach ($meta as $v) {
+        if (!empty($v[0]) && strpos($v[0],'drive.google.com') !== false) {
+            preg_match_all('/https?:\/\/[^\s"]*drive\.google\.com[^\s"]*/',$v[0],$m);
+            if (!empty($m[0])) {
+                $drive_links = array_merge($drive_links,$m[0]);
+            }
         }
     }
 
-    // PLAYER
-    $first = $drive_links[0] ?? null;
-
-    if ($first && preg_match('/\/d\/(.*?)\//', $first, $match)) {
-
-        $file_id = $match[1];
-
-        echo "<h3>Player</h3>";
-        echo "<iframe src='https://drive.google.com/file/d/$file_id/preview' width='100%' height='480' allowfullscreen></iframe><br><br>";
+    preg_match_all('/https?:\/\/[^\s"]*drive\.google\.com[^\s"]*/',$post->post_content,$m);
+    if (!empty($m[0])) {
+        $drive_links = array_merge($drive_links,$m[0]);
     }
 
-    // SERIES LIST
-    if (count($drive_links) > 1) {
+    $drive_links = array_unique($drive_links);
 
-        echo "<h3>Episode:</h3>";
+    echo "<h3>Link Drive</h3>";
 
-        foreach ($drive_links as $i => $link) {
-            $num = $i + 1;
-
-            echo "<div>Episode $num - <a href='".esc_url($link)."' target='_blank'>Buka</a></div>";
-        }
-
-        echo "<br>";
+    foreach ($drive_links as $i => $link) {
+        echo "<a href='$link' target='_blank'>Link ".($i+1)."</a><br>";
     }
-
-    // META
-    echo "<h3>Meta:</h3>";
-    foreach ($meta as $k => $v) {
-        if (!$v || $v === 'Array') continue;
-        echo "<div><b>".esc_html($k).":</b> ".esc_html($v)."</div>";
-    }
-
-    echo "<hr>";
-
-    // TAX
-    echo "<h3>Taxonomy:</h3>";
-    foreach ($tax as $k => $v) {
-        echo "<div><b>".esc_html($k).":</b> ".esc_html(implode(', ', $v))."</div>";
-    }
-
-    echo "<hr>";
-
-    // CONTENT
-    echo "<h3>Content:</h3>";
-
-    $content = $post->post_content;
-    $content = strip_shortcodes($content);
-    $content = preg_replace('/\[[^\]]*\]/', '', $content);
-    $content = wp_strip_all_tags($content);
-
-    echo "<div>".nl2br(trim($content))."</div>";
 
     echo "<br><a href='".url(current_params())."'>Kembali</a>";
     exit;
 }
 
 // =====================
-// QUERY BASE
+// QUERY
 // =====================
 $args = [
     'post_type'=>['post','tv'],
     'posts_per_page'=>$per_page,
     'paged'=>$page,
-    'post_status'=>'publish',
-    'ignore_sticky_posts'=>true,
+    'post_status'=>'publish'
 ];
 
 if ($search) $args['s']=$search;
 
-// TAX QUERY
-$tax_query = [];
+if ($category) $args['cat']=$category;
 
-if ($category) {
-    $tax_query[] = [
-        'taxonomy'=>'category',
-        'field'=>'term_id',
-        'terms'=>[$category]
-    ];
-}
-
-if (!empty($_GET['muvicountry'])) {
-    $tax_query[] = [
-        'taxonomy'=>'muvicountry',
-        'field'=>'slug',
-        'terms'=>array_map('sanitize_title',(array)$_GET['muvicountry'])
-    ];
-}
-
-if (!empty($_GET['muvinetwork'])) {
-    $tax_query[] = [
-        'taxonomy'=>'muvinetwork',
-        'field'=>'slug',
-        'terms'=>array_map('sanitize_title',(array)$_GET['muvinetwork'])
-    ];
-}
-
-if ($tax_query) {
-    $tax_query['relation'] = 'AND';
-    $args['tax_query'] = $tax_query;
-}
-
-// YEAR
 if ($year) {
     $args['meta_query'][] = [
         'key'=>'year',
@@ -224,7 +224,6 @@ if ($year) {
     ];
 }
 
-// SORT
 if ($sort==='views') {
     $args['meta_key']='views';
     $args['orderby']='meta_value_num';
@@ -233,57 +232,38 @@ if ($sort==='views') {
 }
 
 // =====================
-// FILTER FORM
+// FILTER
 // =====================
-echo "<form method='get' style='padding:15px;border:1px solid #ddd;border-radius:10px;margin-bottom:20px;'>";
+echo "<form method='get'>";
 
-echo "<input name='search' value='".esc_attr($search)."' placeholder='Search...' style='width:100%;padding:8px;'><br><br>";
+echo "<input name='search' value='".esc_attr($search)."'> ";
 
-// CATEGORY
 $cats = get_categories(['hide_empty'=>true]);
-echo "<select name='category' style='width:100%;padding:8px;'><option value=''>All</option>";
+echo "<select name='category'><option value=''>All</option>";
 foreach ($cats as $c) {
     $sel = $category==$c->term_id?'selected':'';
     echo "<option value='{$c->term_id}' $sel>{$c->name}</option>";
 }
-echo "</select><br><br>";
+echo "</select> ";
 
-// COUNTRY (AUTO HIDE + COUNT)
-$country_terms = get_terms_with_count_filtered('muvicountry', $args);
-foreach ($country_terms as $t) {
-    $checked = (isset($_GET['muvicountry']) && in_array($t->slug,(array)$_GET['muvicountry']))?'checked':'';
-    echo "<label><input type='checkbox' name='muvicountry[]' value='{$t->slug}' $checked> {$t->name} ({$t->count})</label><br>";
-}
+echo "<input name='year' value='".esc_attr($year)."' placeholder='Year'> ";
 
-echo "<br>";
+echo "<button>Filter</button>";
 
-// NETWORK
-$network_terms = get_terms_with_count_filtered('muvinetwork', $args);
-foreach ($network_terms as $t) {
-    $checked = (isset($_GET['muvinetwork']) && in_array($t->slug,(array)$_GET['muvinetwork']))?'checked':'';
-    echo "<label><input type='checkbox' name='muvinetwork[]' value='{$t->slug}' $checked> {$t->name} ({$t->count})</label><br>";
-}
-
-echo "<br>";
-
-echo "<input name='year' value='".esc_attr($year)."' placeholder='Year'><br><br>";
-
-echo "<button>Filter</button></form>";
+echo "</form><br>";
 
 // =====================
-// RUN QUERY
+// LIST
 // =====================
 $q = new WP_Query($args);
 
 while ($q->have_posts()) {
     $q->the_post();
 
-    $pid = get_the_ID();
-    $thumb = get_the_post_thumbnail_url($pid,'thumbnail');
-
     echo "<div>";
-    if ($thumb) echo "<img src='".esc_url($thumb)."'><br>";
-    echo "<a href='".url(current_params()+['id'=>$pid])."'><b>".esc_html(get_the_title())."</b></a>";
+    echo "<a href='".url(current_params()+['id'=>get_the_ID()])."'>";
+    echo get_the_title();
+    echo "</a>";
     echo "</div><br>";
 }
 
